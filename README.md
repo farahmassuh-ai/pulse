@@ -1,4 +1,4 @@
-# pulse_ml
+# pulse
 Training and tracking an ML model on real-world data: will an MBTA bus be more than
 3 minutes late at a timepoint stop? (Pulse Reliability Signal, see `ml_spec.md`.)
 
