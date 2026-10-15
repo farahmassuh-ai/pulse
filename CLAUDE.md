@@ -20,3 +20,4 @@ Pipeline: MBTA files + API -> Postgres (stop_events) -> splits (DVC) -> models (
 
 ## Working agreement
 - Explain the reasoning before writing code; keep each change small and scoped.
+- Verify every change: run it, check it against the spec and the task rules, and report what was and wasn't verified.
