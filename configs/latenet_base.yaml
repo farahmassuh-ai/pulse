@@ -32,3 +32,9 @@ training:
   seed: 42
 
 output_path: models/latenet.pt
+
+pilot:               # a quick end-to-end check (--pilot); never one of the graded runs
+  train_rows: 200000 # random train rows, so the check takes minutes, not hours
+  max_epochs: 1
+  experiment: pulse-pilot
+  output_path: models/latenet_pilot.pt

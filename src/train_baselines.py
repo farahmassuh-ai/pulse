@@ -106,11 +106,11 @@ def flatten(config: dict, prefix: str = "") -> dict:
     return flat
 
 
-def setup_mlflow():
+def setup_mlflow(experiment: str = EXPERIMENT):
     mlflow.set_tracking_uri(f"sqlite:///{ROOT / 'mlflow.db'}")
-    if mlflow.get_experiment_by_name(EXPERIMENT) is None:
-        mlflow.create_experiment(EXPERIMENT, artifact_location=(ROOT / "mlruns").as_uri())
-    mlflow.set_experiment(EXPERIMENT)
+    if mlflow.get_experiment_by_name(experiment) is None:
+        mlflow.create_experiment(experiment, artifact_location=(ROOT / "mlruns").as_uri())
+    mlflow.set_experiment(experiment)
 
 
 # ---------- main ----------

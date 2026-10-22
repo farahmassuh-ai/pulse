@@ -11,7 +11,8 @@ from torch import nn
 from features import CATEGORICAL, NUMERIC, build_vocab, fit_scaler
 from latenet import LateNet
 from train_latenet import (EarlyStopping, batches, check_feature_lists, evaluate, file_md5,
-                           to_tensors, train_one_epoch, verify_split)
+                           make_optimizer, save_checkpoint, to_tensors, train, train_one_epoch,
+                           verify_split)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -123,6 +124,7 @@ def test_evaluate_matches_hand_calculation_across_batches():
     loss = -sum(y * math.log(q) + (1 - y) * math.log(1 - q) for y, q in zip(labels, p)) / 4
     assert result["loss"] == pytest.approx(loss, rel=1e-5)
     assert result["auc"] == 1.0                     # the late trip outranks every on-time one
+    assert result["pr_auc"] == 1.0                  # ...so precision is perfect at every recall
     assert result["accuracy"] == 0.75               # 0.5 is called late but was on time
 
 
@@ -213,3 +215,62 @@ def test_restores_the_best_weights_not_the_last_ones():
     stopper.step(0.70, 2, model)
     stopper.restore_best(model)
     assert model.weight.item() == 1.0
+
+
+# ---------- one full run ----------
+
+def test_optimizer_follows_the_config():
+    model = nn.Linear(1, 1)
+    base = {"learning_rate": 0.001, "weight_decay": 0.0}
+    assert type(make_optimizer(model, {**base, "optimizer": "adam"})) is torch.optim.Adam
+    assert type(make_optimizer(model, {**base, "optimizer": "adamw"})) is torch.optim.AdamW
+    with pytest.raises(ValueError, match="unknown optimizer"):
+        make_optimizer(model, {**base, "optimizer": "sgd"})
+
+
+def synthetic_split(n, seed):
+    """Rows shaped like the real splits; late is mostly Inbound, so there is something to learn."""
+    g = torch.Generator().manual_seed(seed)
+    inbound = torch.rand(n, generator=g) < 0.5
+    noise = torch.rand(n, generator=g) < 0.1
+    return pd.DataFrame({
+        "route_id": ["01", "28"] * (n // 2),
+        "stop_id": [f"s{i % 7}" for i in range(n)],
+        "hour": pd.array([i % 24 for i in range(n)], dtype="int32"),
+        "day_of_week": pd.array([i % 7 for i in range(n)], dtype="int32"),
+        "point_type": ["Midpoint"] * n,
+        "time_point_order": pd.array([1 + i % 5 for i in range(n)], dtype="Int64"),
+        "direction_id": ["Inbound" if b else "Outbound" for b in inbound.tolist()],
+        "standard_type": ["Headway", "Schedule"] * (n // 2),
+        "late": (inbound ^ noise).tolist(),
+    })
+
+
+def test_a_full_run_learns_and_keeps_the_best_epoch():
+    config = yaml.safe_load((ROOT / "configs" / "latenet_base.yaml").read_text())
+    config["training"].update({"batch_size": 64, "learning_rate": 0.05})
+    result = train(config, synthetic_split(600, 1), synthetic_split(200, 2), max_epochs=8)
+    best = result["history"][result["best_epoch"] - 1]
+    assert result["final"]["auc"] == pytest.approx(best["val_auc_roc"])   # restored weights
+    assert result["final"]["auc"] > 0.8 and result["final"]["loss"] < result["untrained"]["loss"]
+    assert result["n_params"] == sum(p.numel() for p in result["model"].parameters())
+
+
+# ---------- checkpoint ----------
+
+def test_checkpoint_loads_safely_and_rebuilds_the_same_model(tmp_path):
+    config = yaml.safe_load((ROOT / "configs" / "latenet_base.yaml").read_text())
+    config["training"].update({"batch_size": 64, "learning_rate": 0.05})
+    val = synthetic_split(200, 2)
+    result = train(config, synthetic_split(600, 1), val, max_epochs=2)
+    path = tmp_path / "latenet.pt"
+    save_checkpoint(path, result, config)
+
+    saved = torch.load(path, weights_only=True)     # the safe loader accepts the whole file
+    rebuilt = LateNet({c: len(saved["vocab"][c]) for c in CATEGORICAL},
+                      saved["config"]["embedding_dims"], saved["config"]["hidden_layers"],
+                      saved["config"]["dropout"])
+    rebuilt.load_state_dict(saved["state_dict"])
+    data = to_tensors(val, saved["vocab"], saved["scaler"])
+    assert evaluate(rebuilt, data, 64)["auc"] == pytest.approx(result["final"]["auc"])
+    assert saved["best_epoch"] == result["best_epoch"]
