@@ -1,6 +1,7 @@
 """Step 1.3/1.4: train LateNet from the frozen splits, tracked in MLflow.
 
-Part 6a (this part): load the splits, check them, and turn them into tensors.
+Part 6a: load the splits, check them, and turn them into tensors.
+Part 6b: one epoch of training, and scoring a split without learning.
 The test split is never opened here.
 """
 from __future__ import annotations
@@ -10,6 +11,8 @@ from pathlib import Path
 
 import pandas as pd
 import torch
+from sklearn.metrics import roc_auc_score
+from torch import nn
 
 from features import CATEGORICAL, NUMERIC, check_inputs, encode, numeric_inputs
 from train_baselines import SPLIT_DIR, dvc_md5
@@ -73,3 +76,28 @@ def batches(tensors, batch_size: int, generator: torch.Generator | None = None):
     for start in range(0, n, batch_size):
         rows = order[start:start + batch_size]
         yield tuple(t[rows] for t in tensors)
+
+
+def train_one_epoch(model, tensors, optimizer, batch_size: int, generator: torch.Generator) -> None:
+    """One pass over train in a fresh shuffled order; the weights learn from every batch."""
+    loss_fn = nn.BCEWithLogitsLoss()
+    model.train()                                   # dropout on
+    for categorical, numeric, label in batches(tensors, batch_size, generator):
+        optimizer.zero_grad()                       # forget the previous batch's gradients
+        loss = loss_fn(model(categorical, numeric), label)
+        loss.backward()                             # gradients for every weight
+        optimizer.step()                            # move the weights
+
+
+def evaluate(model, tensors, batch_size: int) -> dict[str, float]:
+    """Loss, AUC and accuracy on one whole split: dropout off, nothing learned."""
+    model.eval()
+    with torch.no_grad():
+        logits = torch.cat([model(c, n) for c, n, _ in batches(tensors, batch_size)])
+    label = tensors[2]
+    return {
+        "loss": nn.functional.binary_cross_entropy_with_logits(logits, label).item(),
+        "auc": float(roc_auc_score(label.numpy(), logits.numpy())),
+        # late = score above 0 (probability above 0.5), the same rule as sklearn's predict()
+        "accuracy": float(((logits > 0).float() == label).float().mean()),
+    }
