@@ -28,7 +28,7 @@ from sklearn.preprocessing import OneHotEncoder
 
 ROOT = Path(__file__).resolve().parent.parent
 SPLIT_DIR = ROOT / "data" / "splits"
-EXPERIMENT = "pulse-baselines"
+EXPERIMENT = "pulse"
 
 
 # ---------- models ----------
