@@ -2,10 +2,12 @@
 
 Part 6a: load the splits, check them, and turn them into tensors.
 Part 6b: one epoch of training, and scoring a split without learning.
+Part 6c: early stopping on validation AUC, keeping the best epoch's weights.
 The test split is never opened here.
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 from pathlib import Path
 
@@ -101,3 +103,33 @@ def evaluate(model, tensors, batch_size: int) -> dict[str, float]:
         # late = score above 0 (probability above 0.5), the same rule as sklearn's predict()
         "accuracy": float(((logits > 0).float() == label).float().mean()),
     }
+
+
+class EarlyStopping:
+    """Watch validation AUC (higher is better) and keep the best epoch's weights.
+
+    Stops once AUC has not improved for `patience` epochs in a row.
+    """
+
+    def __init__(self, patience: int):
+        self.patience = patience
+        self.best_score = float("-inf")
+        self.best_epoch = None
+        self.best_state = None
+        self.epochs_without_improvement = 0
+
+    def step(self, score: float, epoch: int, model) -> bool:
+        """Record one epoch's validation AUC. Returns True when training should stop."""
+        if score > self.best_score:                 # strictly better; a tie is not progress
+            self.best_score, self.best_epoch = score, epoch
+            self.best_state = copy.deepcopy(model.state_dict())   # a frozen copy, not live weights
+            self.epochs_without_improvement = 0
+        else:
+            self.epochs_without_improvement += 1
+        return self.epochs_without_improvement >= self.patience
+
+    def restore_best(self, model) -> None:
+        """Put the best epoch's weights back into the model."""
+        if self.best_state is None:
+            raise RuntimeError("no epoch improved on -inf; was every validation AUC NaN?")
+        model.load_state_dict(self.best_state)

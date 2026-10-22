@@ -10,8 +10,8 @@ from torch import nn
 
 from features import CATEGORICAL, NUMERIC, build_vocab, fit_scaler
 from latenet import LateNet
-from train_latenet import (batches, check_feature_lists, evaluate, file_md5, to_tensors,
-                           train_one_epoch, verify_split)
+from train_latenet import (EarlyStopping, batches, check_feature_lists, evaluate, file_md5,
+                           to_tensors, train_one_epoch, verify_split)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -171,3 +171,45 @@ def test_evaluate_learns_nothing_and_turns_dropout_off():
     evaluate(model, data, 128)
     assert not model.training
     assert all(torch.equal(a, b) for a, b in zip(before, model.parameters()))
+
+
+# ---------- early stopping ----------
+
+def run(scores, patience=2):
+    """Feed validation AUCs epoch by epoch (epochs numbered from 1); return the stopper and its answers."""
+    stopper, model = EarlyStopping(patience), nn.Linear(1, 1)
+    answers = [stopper.step(s, epoch, model) for epoch, s in enumerate(scores, start=1)]
+    return stopper, answers
+
+
+def test_stops_after_patience_epochs_without_improvement():
+    stopper, answers = run([0.70, 0.72, 0.71, 0.715])
+    assert answers == [False, False, False, True]
+    assert stopper.best_epoch == 2 and stopper.best_score == 0.72
+
+
+def test_higher_auc_is_better():
+    stopper, _ = run([0.75, 0.74, 0.73])
+    assert stopper.best_epoch == 1
+
+
+def test_a_tie_does_not_count_as_improvement():
+    stopper, answers = run([0.72, 0.72, 0.72])
+    assert stopper.best_epoch == 1 and answers[-1] is True
+
+
+def test_an_improvement_resets_the_count():
+    _, answers = run([0.70, 0.69, 0.71, 0.70, 0.69])
+    assert answers == [False, False, False, False, True]
+
+
+def test_restores_the_best_weights_not_the_last_ones():
+    stopper, model = EarlyStopping(patience=2), nn.Linear(1, 1)
+    with torch.no_grad():
+        model.weight.fill_(1.0)
+    stopper.step(0.80, 1, model)                    # best epoch: weight 1.0
+    with torch.no_grad():
+        model.weight.fill_(5.0)                     # later training changes the live weights
+    stopper.step(0.70, 2, model)
+    stopper.restore_best(model)
+    assert model.weight.item() == 1.0
