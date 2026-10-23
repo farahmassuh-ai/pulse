@@ -128,3 +128,10 @@ def test_constant_time_point_order_cannot_be_scaled():
     train["time_point_order"] = pd.array([3, 3], dtype="Int64")
     with pytest.raises(ValueError, match="constant"):
         fit_scaler(train)
+
+
+def test_vocab_and_encode_can_leave_a_column_out():
+    train = rows(["a", "b"], [7, 8])
+    vocab = build_vocab(train, ["route_id", "stop_id", "hour", "day_of_week"])
+    assert list(vocab) == ["route_id", "stop_id", "hour", "day_of_week"]
+    assert list(encode(train, vocab).columns) == ["route_id", "stop_id", "hour", "day_of_week"]

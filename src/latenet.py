@@ -9,7 +9,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-from features import CATEGORICAL, NUMERIC
+from features import NUMERIC
 
 
 class LateNet(nn.Module):
@@ -18,12 +18,13 @@ class LateNet(nn.Module):
         """vocab_sizes: known values per column (len of its vocabulary, without 0).
         embedding_dims, hidden, dropout: from the config."""
         super().__init__()
+        self.columns = list(vocab_sizes)        # the categorical inputs this model uses, in order
         # One table per column: row 0 = unknown, kept at zero (padding_idx=0).
         self.embeddings = nn.ModuleDict({
             col: nn.Embedding(vocab_sizes[col] + 1, embedding_dims[col], padding_idx=0)
-            for col in CATEGORICAL
+            for col in self.columns
         })
-        width = sum(embedding_dims[col] for col in CATEGORICAL) + len(NUMERIC)
+        width = sum(embedding_dims[col] for col in self.columns) + len(NUMERIC)
         layers = []
         for size in hidden:
             layers += [nn.Linear(width, size), nn.ReLU(), nn.Dropout(dropout)]
@@ -32,8 +33,8 @@ class LateNet(nn.Module):
         self.mlp = nn.Sequential(*layers)
 
     def forward(self, categorical: torch.Tensor, numeric: torch.Tensor) -> torch.Tensor:
-        """categorical: (batch, 5) int64 in CATEGORICAL order; numeric: (batch, 4) float32
-        in NUMERIC order. Returns (batch,) logits."""
-        parts = [self.embeddings[col](categorical[:, i]) for i, col in enumerate(CATEGORICAL)]
+        """categorical: (batch, n_columns) int64 in self.columns order; numeric: (batch, 4)
+        float32 in NUMERIC order. Returns (batch,) logits."""
+        parts = [self.embeddings[col](categorical[:, i]) for i, col in enumerate(self.columns)]
         x = torch.cat(parts + [numeric], dim=1)
         return self.mlp(x).squeeze(1)

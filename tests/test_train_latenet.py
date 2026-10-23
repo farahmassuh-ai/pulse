@@ -39,10 +39,24 @@ def test_config_feature_lists_match_the_code():
     check_feature_lists(config)                     # no error raised
 
 
-def test_feature_list_mismatch_is_caught():
-    config = {"features": {"categorical": CATEGORICAL[:-1], "numeric": NUMERIC}}
+def test_leaving_a_feature_out_is_allowed():
+    check_feature_lists({"features": {"categorical": CATEGORICAL[:-1], "numeric": NUMERIC}})
+
+
+@pytest.mark.parametrize("categorical", [
+    [],                                              # nothing left
+    CATEGORICAL[::-1],                               # reordered
+    CATEGORICAL + ["stop_id"],                       # repeated
+    CATEGORICAL[:-1] + ["stop_name"],                # unknown name (a typo)
+])
+def test_bad_feature_lists_are_caught(categorical):
     with pytest.raises(ValueError, match="features.categorical"):
-        check_feature_lists(config)
+        check_feature_lists({"features": {"categorical": categorical, "numeric": NUMERIC}})
+
+
+def test_numeric_list_must_match_the_code():
+    with pytest.raises(ValueError, match="features.numeric"):
+        check_feature_lists({"features": {"categorical": CATEGORICAL, "numeric": NUMERIC[:-1]}})
 
 
 # ---------- tensors ----------
@@ -274,3 +288,15 @@ def test_checkpoint_loads_safely_and_rebuilds_the_same_model(tmp_path):
     data = to_tensors(val, saved["vocab"], saved["scaler"])
     assert evaluate(rebuilt, data, 64)["auc"] == pytest.approx(result["final"]["auc"])
     assert saved["best_epoch"] == result["best_epoch"]
+
+
+# ---------- feature ablation ----------
+
+def test_a_run_without_point_type_uses_four_embeddings():
+    config = yaml.safe_load((ROOT / "configs" / "latenet_base.yaml").read_text())
+    config["features"]["categorical"] = [c for c in CATEGORICAL if c != "point_type"]
+    config["training"].update({"batch_size": 64, "learning_rate": 0.05})
+    result = train(config, synthetic_split(600, 1), synthetic_split(200, 2), max_epochs=2)
+    model = result["model"]
+    assert "point_type" not in result["vocab"] and "point_type" not in model.embeddings
+    assert model.mlp[0].in_features == 8 + 16 + 4 + 3 + 4      # 37 minus point type's 2

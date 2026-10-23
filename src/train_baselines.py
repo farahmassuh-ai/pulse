@@ -113,6 +113,16 @@ def setup_mlflow(experiment: str = EXPERIMENT):
     mlflow.set_experiment(experiment)
 
 
+def export_runs(experiment: str = EXPERIMENT, path: Path = ROOT / "mlflow_runs.csv"):
+    """The results table: finished runs only, best validation AUC first."""
+    runs = mlflow.search_runs(experiment_names=[experiment],
+                              filter_string="attributes.status = 'FINISHED'",
+                              order_by=["metrics.val_auc_roc DESC"])
+    runs.to_csv(path, index=False)
+    print(f"Exported {len(runs)} finished run(s) to {path.name}, sorted by validation AUC")
+    return runs
+
+
 # ---------- main ----------
 
 def run(config_path: Path, train: pd.DataFrame, val: pd.DataFrame) -> dict:
@@ -153,9 +163,7 @@ def main(argv: list[str]) -> int:
         print(f"{path.stem:<20} accuracy {metrics['val_accuracy']:.3f}  "
               f"AUC-ROC {metrics['val_auc_roc']:.3f}  PR-AUC {metrics['val_pr_auc']:.3f}")
 
-    runs = mlflow.search_runs(experiment_names=[EXPERIMENT])
-    runs.to_csv(ROOT / "mlflow_runs.csv", index=False)
-    print(f"Exported {len(runs)} run(s) to mlflow_runs.csv")
+    export_runs()
     return 0
 
 

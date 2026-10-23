@@ -37,14 +37,14 @@ def check_inputs(df: pd.DataFrame) -> None:
         raise ValueError("Input check failed:\n  " + "\n  ".join(problems))
 
 
-def build_vocab(train: pd.DataFrame) -> dict[str, dict[str, int]]:
+def build_vocab(train: pd.DataFrame, columns: list[str] = CATEGORICAL) -> dict[str, dict[str, int]]:
     """value -> index (1, 2, 3, ...) for each categorical column, from train only.
 
     Keys are stored as text so the vocabulary saves cleanly next to the weights
     and an hour of 7 means the same thing whether it arrives as int32 or int.
     """
     vocab = {}
-    for col in CATEGORICAL:
+    for col in columns:                     # all five, or fewer for an ablation run
         values = sorted(train[col].astype(str).unique())
         vocab[col] = {value: i for i, value in enumerate(values, start=1)}
     return vocab
@@ -53,7 +53,7 @@ def build_vocab(train: pd.DataFrame) -> dict[str, dict[str, int]]:
 def encode(df: pd.DataFrame, vocab: dict[str, dict[str, int]]) -> pd.DataFrame:
     """Replace each categorical value by its index; values not in vocab -> 0."""
     out = pd.DataFrame(index=df.index)
-    for col in CATEGORICAL:
+    for col in vocab:                       # the columns the vocabulary was built for, in order
         out[col] = df[col].astype(str).map(vocab[col]).fillna(UNKNOWN).astype("int64")
     return out
 

@@ -32,7 +32,8 @@ from torch import nn
 from features import (CATEGORICAL, NUMERIC, build_vocab, check_inputs, encode, fit_scaler,
                       numeric_inputs)
 from latenet import LateNet
-from train_baselines import ROOT, SPLIT_DIR, dvc_md5, flatten, git_commit, setup_mlflow
+from train_baselines import (ROOT, SPLIT_DIR, dvc_md5, export_runs, flatten, git_commit,
+                             setup_mlflow)
 
 LABEL = "late"
 
@@ -55,11 +56,16 @@ def verify_split(path: Path, expected_md5: str) -> None:
 
 
 def check_feature_lists(config: dict) -> None:
-    """The config's feature lists must match the ones the code actually uses."""
-    for key, in_code in [("categorical", CATEGORICAL), ("numeric", NUMERIC)]:
-        if config["features"][key] != in_code:
-            raise ValueError(f"config features.{key} {config['features'][key]} "
-                             f"does not match the code's {in_code}")
+    """The config may leave categorical features out (an ablation run), but never add,
+    repeat or reorder them; the numeric inputs must match the code exactly."""
+    chosen = config["features"]["categorical"]
+    in_code_order = [col for col in CATEGORICAL if col in chosen]
+    if not chosen or chosen != in_code_order or len(set(chosen)) != len(chosen):
+        raise ValueError(f"config features.categorical {chosen} must be a non-empty subset of "
+                         f"{CATEGORICAL}, in that order, with no repeats or unknown names")
+    if config["features"]["numeric"] != NUMERIC:
+        raise ValueError(f"config features.numeric {config['features']['numeric']} "
+                         f"does not match the code's {NUMERIC}")
 
 
 def load_splits() -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -167,9 +173,10 @@ def train(config: dict, train_df: pd.DataFrame, val_df: pd.DataFrame, max_epochs
     t = config["training"]
     torch.manual_seed(t["seed"])                    # before the model exists: same start every rerun
 
-    vocab, scaler = build_vocab(train_df), fit_scaler(train_df)
+    vocab = build_vocab(train_df, config["features"]["categorical"])
+    scaler = fit_scaler(train_df)
     train_t, val_t = to_tensors(train_df, vocab, scaler), to_tensors(val_df, vocab, scaler)
-    model = LateNet({col: len(vocab[col]) for col in CATEGORICAL}, config["embedding_dims"],
+    model = LateNet({col: len(vocab[col]) for col in vocab}, config["embedding_dims"],
                     config["hidden_layers"], config["dropout"])
     optimizer = make_optimizer(model, t)
     generator = torch.Generator().manual_seed(t["seed"])
@@ -289,9 +296,7 @@ def main(argv=None) -> int:
     print(f"saved {checkpoint.relative_to(ROOT)}; MLflow run {run_id} in experiment '{experiment}'")
 
     if not args.pilot:                              # the graded run table, as the baselines export it
-        runs = mlflow.search_runs(experiment_names=[experiment])
-        runs.to_csv(ROOT / "mlflow_runs.csv", index=False)
-        print(f"Exported {len(runs)} run(s) to mlflow_runs.csv")
+        export_runs(experiment)
     return 0
 
 
