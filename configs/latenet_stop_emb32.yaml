@@ -1,0 +1,40 @@
+# LateNet: embeddings + small MLP that predicts P(late) for a stop event.
+# Every number the training script uses lives here.
+run_name: latenet_stop_emb32
+experiment: pulse          # one MLflow experiment for every run, baselines included
+model: latenet
+label: late
+
+features:
+  # Turned into integer indexes from a vocabulary built on the train split only.
+  # Index 0 is reserved for values never seen in training.
+  categorical: [route_id, stop_id, hour, day_of_week, point_type]
+  # Small numbers fed in directly: 0/1 flags and timepoint order scaled to 0-1.
+  numeric: [direction, weekend, standard_type, time_point_order]
+
+embedding_dims:
+  route_id: 8
+  stop_id: 32
+  hour: 4
+  day_of_week: 3
+  point_type: 2
+
+hidden_layers: [64, 32]
+dropout: 0.1
+
+training:
+  batch_size: 4096
+  optimizer: adam
+  learning_rate: 0.001
+  weight_decay: 0.0  # no weight decay in the base run (light regularization, large dataset)
+  max_epochs: 40
+  patience: 2        # stop if validation AUC hasn't improved for this many epochs
+  seed: 42
+
+output_path: models/latenet_stop_emb32.pt
+
+pilot:               # a quick end-to-end check (--pilot); never one of the graded runs
+  train_rows: 200000 # random train rows, so the check takes minutes, not hours
+  max_epochs: 1
+  experiment: pulse-pilot
+  output_path: models/latenet_pilot.pt
