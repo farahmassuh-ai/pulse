@@ -87,3 +87,32 @@ def headline_metrics(y_true, prob, threshold: float) -> dict:
         "pr_auc": average_precision_score(y_true, prob),                # precision-recall summary (threshold-free)
         "majority_baseline": float(max(late_rate, 1 - late_rate))       # accuracy of always quessing the bigger class
     }
+
+
+def confusion(y_true, prob, threshold: float) -> dict:
+    """The 2x2 confusion matrix at a threshold (flagged late = prob > threshold)."""
+    y_true = np.asarray(y_true, dtype=int)
+    flagged = np.asarray(prob) > threshold
+    return {
+        "tn": int(((y_true==0) & ~flagged).sum()),      # on time, no warning: correct
+        "fp": int(((y_true==0) & flagged).sum()),       # on time, warned: false alarm
+        "fn": int(((y_true==1) & ~flagged).sum()),      # late, no warning: missed delay
+        "tp": int(((y_true==1) & flagged).sum())        # late, warned: correct
+    }
+
+
+def threshold_table(y_true, prob, thresholds=(0.35, 0.40, 0.45, 0.50, 0.55, 0.60)) -> pd.DataFrame:
+    """For each threshold: accuracy, precision, recall, and how many stops get a warning."""
+    rows = []
+    for t in thresholds:
+        c = confusion(y_true, prob, t)
+        total, flagged = sum(c.values()), c["tp"] + c["fp"]    # all stops; stops warned as late
+        rows.append({
+            "threshold": t,
+            "accuracy": (c["tp"] + c["tn"]) / total,             # share of all answers that were right
+            "precision": c["tp"] / flagged if flagged else 0.0,  # of the warnings, how many were right
+            "recall": c["tp"] / (c["tp"] + c["fn"]),             # of the late buses, how many were caught
+            "share_flagged": flagged / total,                    # share of all stops that get a warning
+            "on_time_flagged": c["fp"] / (c["fp"] + c["tn"]),    # share of on-time buses warned (= FPR)
+        })
+    return pd.DataFrame(rows)

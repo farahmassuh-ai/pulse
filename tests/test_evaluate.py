@@ -7,7 +7,7 @@ import pytest
 # reads the YAML config file
 import yaml
 # the function we're testing
-from evaluate import load_model, headline_metrics, predict
+from evaluate import load_model, headline_metrics, predict, confusion, threshold_table
 # repo folder and fake data maker (already been written)
 from test_train_latenet import ROOT, synthetic_split
 # tools from the training script
@@ -71,3 +71,27 @@ def test_predict_gives_one_probability_per_row(tmp_path):
     with torch.no_grad():                               # same as sigmoid of the model's raw scores
         expected = torch.sigmoid(result["model"](data[0], data[1])).numpy()
     assert np.allclose(prob, expected)
+
+
+def test_confusion_matches_a_hand_count():
+    y_true, prob = [1, 1, 0, 0], [0.9, 0.4, 0.6, 0.1]
+    assert confusion(y_true, prob, 0.5) == {"tn": 1, "fp": 1, "fn": 1, "tp": 1}
+    assert confusion(y_true, prob, 0.3) == {"tn": 1, "fp": 1, "fn": 0, "tp": 2}
+
+
+def test_threshold_table_row_matches_a_hand_calculation():
+    row = threshold_table([1, 1, 0, 0], [0.9, 0.4, 0.6, 0.1], thresholds=(0.3,)).iloc[0]
+    assert row["accuracy"] == 0.75          # 3 of 4 correct
+    assert row["precision"] == 2 / 3        # 3 warnings, 2 right
+    assert row["recall"] == 1.0             # both late buses caught
+    assert row["share_flagged"] == 0.75     # 3 of 4 stops warned
+    assert row["on_time_flagged"] == 0.5    # 1 of 2 on-time buses warned
+
+
+def test_threshold_table_agrees_with_headline_metrics():
+    y_true, prob = [1, 1, 0, 0, 1, 0], [0.9, 0.4, 0.6, 0.1, 0.7, 0.45]
+    row = threshold_table(y_true, prob, thresholds=(0.45,)).iloc[0]
+    m = headline_metrics(y_true, prob, threshold=0.45)
+    assert row["accuracy"] == pytest.approx(m["accuracy"])     # two ways of computing,
+    assert row["precision"] == pytest.approx(m["precision"])   # same answer
+    assert row["recall"] == pytest.approx(m["recall"])
