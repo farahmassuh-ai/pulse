@@ -1,5 +1,7 @@
 # arrays of numbers (probabilities, labels)
 import numpy as np
+# pandas needed
+import pandas as pd
 # PyTorch
 import torch
 # testing tool needed for pytest.appox
@@ -7,7 +9,7 @@ import pytest
 # reads the YAML config file
 import yaml
 # the function we're testing
-from evaluate import load_model, headline_metrics, predict, confusion, threshold_table
+from evaluate import load_model, headline_metrics, predict, confusion, threshold_table, calibration_by_hour, route_check
 # repo folder and fake data maker (already been written)
 from test_train_latenet import ROOT, synthetic_split
 # tools from the training script
@@ -95,3 +97,23 @@ def test_threshold_table_agrees_with_headline_metrics():
     assert row["accuracy"] == pytest.approx(m["accuracy"])     # two ways of computing,
     assert row["precision"] == pytest.approx(m["precision"])   # same answer
     assert row["recall"] == pytest.approx(m["recall"])
+
+
+def test_calibration_by_hour_matches_a_hand_calculation():
+    df = pd.DataFrame({"hour": pd.array([7, 7, 8], dtype="int32"), "late": [False, True, True]})
+    table = calibration_by_hour(df, np.array([0.2, 0.4, 0.9]))
+    assert table.loc[7, "rows"] == 2
+    assert table.loc[7, "predicted"] == pytest.approx(0.3)     # (0.2 + 0.4) / 2
+    assert table.loc[7, "actual"] == pytest.approx(0.5)        # 1 of 2 late
+    assert table.loc[7, "gap"] == pytest.approx(-0.2)          # model too optimistic at 7 am
+    assert table.loc[8, "actual"] == pytest.approx(1.0)
+
+
+def test_route_check_skips_small_routes_and_ranks_the_rest():
+    df = pd.DataFrame({"route_id": ["A", "A", "B", "B", "C", "C", "D"],
+                       "late": [True, True, True, False, False, False, True]})
+    prob = np.array([0.8, 0.8, 0.5, 0.5, 0.2, 0.2, 0.99])
+    top_predicted, top_actual, pearson = route_check(df, prob, min_rows=2, top=2)
+    assert list(top_predicted.index) == ["A", "B"]   # D has the highest prediction but only 1 trip
+    assert list(top_actual.index) == ["A", "B"]
+    assert pearson == pytest.approx(1.0)             # predictions rise exactly with actual rates

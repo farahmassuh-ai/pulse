@@ -116,3 +116,33 @@ def threshold_table(y_true, prob, thresholds=(0.35, 0.40, 0.45, 0.50, 0.55, 0.60
             "on_time_flagged": c["fp"] / (c["fp"] + c["tn"]),    # share of on-time buses warned (= FPR)
         })
     return pd.DataFrame(rows)
+
+
+def calibration_by_hour(df: pd.DataFrame, prob) -> pd.DataFrame:
+    """For each scheduled hour: mean predicted probability vs actual late rate."""
+    table = pd.DataFrame({"hour": df["hour"].to_numpy(),          # the hour of each trip
+                          "predicted": prob,                       # the model's probability
+                          "actual": df[LABEL].to_numpy(dtype=float)})   # 1.0 = really late
+    out = table.groupby("hour").agg(rows=("actual", "size"),       # trips in that hour
+                                    predicted=("predicted", "mean"),    # average prediction
+                                    actual=("actual", "mean"))          # real late rate
+    out["gap"] = out["predicted"] - out["actual"]    # + = too pessimistic, - = too optimistic
+    return out
+
+
+def route_check(df: pd.DataFrame, prob, min_rows: int = 1000, top: int = 5):
+    """Top routes by predicted vs actual late rate, and how well the two agree (Pearson r).
+
+    Only routes with at least min_rows trips, so each rate is based on plenty of data.
+    """
+    table = pd.DataFrame({"route": df["route_id"].to_numpy(),
+                          "predicted": prob,
+                          "actual": df[LABEL].to_numpy(dtype=float)})
+    routes = table.groupby("route").agg(rows=("actual", "size"),
+                                        predicted=("predicted", "mean"),
+                                        actual=("actual", "mean"))
+    routes = routes[routes["rows"] >= min_rows]                 # drop routes with too few trips
+    top_predicted = routes.nlargest(top, "predicted")           # the model's 5 latest routes
+    top_actual = routes.nlargest(top, "actual")                 # the really 5 latest routes
+    pearson = float(routes["predicted"].corr(routes["actual"])) # 1 = perfect agreement, 0 = none
+    return top_predicted, top_actual, pearson
