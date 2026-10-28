@@ -89,36 +89,90 @@ Index 0, for values never seen in training, stays all zeros, so an unseen stop a
 ## 4. Final Evaluation (held-out test weeks)
 Test split: June 16 to 30, 2026 (1,172,789 rows, 43.3% late). Opened once, for this evaluation only.
 
-| Metric | Value |
-|---|---|
-| Accuracy | |
-| AUC-ROC | |
-| PR-AUC | |
-| Recall (late) at threshold _t_ | |
-| Precision (late) at threshold _t_ | |
+| Metric | Validation | Test | Acceptance bar |
+|---|---|---|---|
+| Late rate (share of stops actually late) | 49.2% | 43.3% | |
+| Majority-class baseline accuracy | 50.8% | 56.7% | |
+| Accuracy at 0.5 | 69.0% | **68.0%** | ≥ 65% ✓ |
+| AUC-ROC | 0.763 | **0.736** | ≥ 0.70 ✓ |
+| PR-AUC | 0.752 | 0.674 | |
+| Accuracy at 0.45 (operating threshold) | 69.4% | 67.1% | |
+| Recall (late) at 0.45 | 0.682 | 0.686 | |
+| Precision (late) at 0.45 | 0.692 | 0.606 | |
 
-**Confusion matrix** (threshold _t_):
+**Confusion matrix** (threshold 0.45):
 
 | | Predicted not late | Predicted late |
 |---|---|---|
-| **Actually not late** | | |
-| **Actually late** | | |
+| **Actually not late** | 437,837 | 226,844 |
+| **Actually late** | 159,351 | 348,757 |
 
 **Calibration check: predicted vs. actual late rate by hour:**
 
-| Hour | Predicted late rate | Actual late rate |
-|---|---|---|
-| | | |
+Gap = predicted − actual: positive means the model was too pessimistic, negative too optimistic.
 
-_(what the calibration shows)_
+| Hour | Rows | Predicted late rate | Actual late rate | Gap |
+|---|---|---|---|---|
+| 0 | 35,672 | 0.334 | 0.371 | -0.037 |
+| 1 | 14,506 | 0.328 | 0.344 | -0.016 |
+| 2 | 1,881 | 0.195 | 0.248 | -0.053 |
+| 3 | 341 | 0.481 | 0.572 | -0.091 |
+| 4 | 5,459 | 0.344 | 0.400 | -0.055 |
+| 5 | 42,773 | 0.294 | 0.290 | +0.004 |
+| 6 | 71,727 | 0.360 | 0.343 | +0.017 |
+| 7 | 74,736 | 0.414 | 0.336 | +0.078 |
+| 8 | 73,695 | 0.462 | 0.384 | +0.078 |
+| 9 | 64,336 | 0.458 | 0.431 | +0.027 |
+| 10 | 55,873 | 0.445 | 0.430 | +0.015 |
+| 11 | 53,699 | 0.450 | 0.457 | -0.007 |
+| 12 | 53,423 | 0.460 | 0.485 | -0.026 |
+| 13 | 55,509 | 0.484 | 0.502 | -0.018 |
+| 14 | 60,665 | 0.503 | 0.501 | +0.002 |
+| 15 | 65,316 | 0.524 | 0.460 | +0.064 |
+| 16 | 68,820 | 0.515 | 0.438 | +0.076 |
+| 17 | 69,829 | 0.536 | 0.463 | +0.073 |
+| 18 | 70,966 | 0.509 | 0.455 | +0.054 |
+| 19 | 60,191 | 0.487 | 0.460 | +0.028 |
+| 20 | 49,505 | 0.495 | 0.476 | +0.020 |
+| 21 | 44,019 | 0.483 | 0.499 | -0.016 |
+| 22 | 41,097 | 0.471 | 0.498 | -0.027 |
+| 23 | 38,751 | 0.434 | 0.454 | -0.019 |
+
+On the test weeks the model was mostly too pessimistic: its predicted late rate was above the actual one in most daytime hours, by up to 0.078 during the morning and afternoon rush. On validation it had been the opposite, too optimistic in almost every hour. The reason is that the overall late rate moved: about 46% in training, 49.2% in the first half of June and 43.3% in the second half. The model’s predictions sit near the training level, so they ran too low when June got later and too high when it got less late. The model’s average predicted probability was almost identical in both halves of June (45.5% and 45.8%), close to the training late rate of 45.7%, while the actual rate moved to 49.2% and then 43.3%.
+
+A likely explanation for the drop in the second half of June is that schools close and summer vacations begin, so there are fewer commuters and lighter traffic. The data in this project cannot confirm it. The few early-morning hours with very few trips (for example hour 3, with 341 rows) are too small to read anything from.
 
 **Route-level sanity check: top-5 predicted-late routes vs. actual:**
 
-| Route | Predicted late rate | Actual late rate |
-|---|---|---|
-| | | |
+Top 5 routes by **predicted** late rate (routes with 1,000+ rows):
 
-_(what the route check shows)_
+| Route | Rows | Predicted | Actual |
+|---|---|---|---|
+| 35 | 5,204 | 0.755 | 0.703 |
+| 44 | 9,333 | 0.701 | 0.682 |
+| 37 | 3,890 | 0.695 | 0.632 |
+| 52 | 3,073 | 0.682 | 0.561 |
+| 29 | 4,110 | 0.661 | 0.645 |
+
+Top 5 routes by **actual** late rate:
+
+| Route | Rows | Predicted | Actual |
+|---|---|---|---|
+| 35 | 5,204 | 0.755 | 0.703 |
+| 31 | 14,084 | 0.639 | 0.697 |
+| 44 | 9,333 | 0.701 | 0.682 |
+| 24 | 7,596 | 0.646 | 0.651 |
+| 34E | 15,180 | 0.627 | 0.650 |
+
+Pearson correlation between predicted and actual route late rates: 0.913 on test (0.953 on validation).
+
+The model still ranks routes well: across routes with 1,000+ trips, its predicted late rates correlate with the actual ones at r = 0.913 (0.953 on validation). Route 35 is the latest route in both lists, and two of the actual top 5 routes appear in the model’s top 5.
+
+The weaker agreement on test likely explains part of the AUC drop. Some routes changed in the second half of June in ways the model could not know: route 52 ran later than predicted in the first half of June (0.719 actual vs 0.676 predicted) but much less late in the second half (0.561 vs 0.682). Other routes are under-predicted throughout June: route 31 was later than predicted on both validation (0.752 vs 0.635) and test (0.697 vs 0.639), so its lateness likely rose after the April–May training period.
+
+Both acceptance bars are met on the test weeks: accuracy at 0.5 was 68.0% (bar: 65%) and AUC-ROC 0.736 (bar: 0.70), 11.3 percentage points above the majority-class baseline of the test weeks (56.7%). As expected, test came in below validation: AUC fell by 0.027 and accuracy at 0.5 by 1.1 percentage points.
+
+At the operating threshold of 0.45, recall held steady (0.682 on validation, 0.686 on test), so the model still caught about two-thirds of late buses. Precision fell from 0.692 to 0.606, because fewer buses were actually late in the test weeks and the model, still near the training level, warned on more on-time buses (34.1% vs 29.4%). On the test weeks, 0.45 also had slightly lower accuracy than 0.5 (67.1% vs 68.0%). Section 5 discusses what this means for the threshold.
 
 ## 5. Threshold Recommendation
 | Threshold | Precision (late) | Recall (late) | Share of trips flagged |
