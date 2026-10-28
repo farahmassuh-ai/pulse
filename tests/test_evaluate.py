@@ -9,7 +9,7 @@ import pytest
 # reads the YAML config file
 import yaml
 # the function we're testing
-from evaluate import load_model, headline_metrics, predict, confusion, threshold_table, calibration_by_hour, route_check, check_test_run
+from evaluate import load_model, headline_metrics, predict, confusion, threshold_table, calibration_by_hour, route_check, check_test_run, main
 # repo folder and fake data maker (already been written)
 from test_train_latenet import ROOT, synthetic_split
 # tools from the training script
@@ -137,3 +137,13 @@ def test_the_wrong_run_id_is_refused():
     with pytest.raises(ValueError, match="not the run that produced the saved model"):
         check_test_run("latenet_wide", {"val_auc_roc": 0.759}, FINAL_CHECKPOINT)
 
+
+
+def test_test_split_cannot_run_without_a_run_id():
+    with pytest.raises(SystemExit):        # stops at the command line, before any data is loaded
+        main(["test"])
+
+
+def test_validation_does_not_take_a_run_id():
+    with pytest.raises(SystemExit):
+        main(["val", "--run-id", "abc"])

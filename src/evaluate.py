@@ -20,14 +20,22 @@ import numpy as np
 import pandas as pd
 # Pytorch: needed to load the saved file
 import torch
+# reads the command-line options
+import argparse
+# for the exit code at the end
+import sys
+# logs the test results
+import mlflow
 # our network class (src/latenet.py)
 from latenet import LateNet
 # repo's top folder
-from train_baselines import ROOT
+from train_baselines import ROOT, SPLIT_DIR, dvc_md5, export_runs, setup_mlflow
 # the standard metric functions
 from sklearn.metrics import (accuracy_score, average_precision_score, precision_score, recall_score, roc_auc_score)
 # the label name ("late") and data helpers
-from train_latenet import LABEL, batches, to_tensors
+from train_latenet import LABEL, batches, to_tensors, verify_split
+# the input guards
+from features import check_inputs
 
 # where the winning model lives (default file)
 MODEL_PATH = ROOT / "models" / "latenet.pt"
@@ -158,3 +166,74 @@ def check_test_run(run_name: str, run_metrics: dict, checkpoint: dict) -> None:
     if already:                                     # test results already logged: test was used
         raise ValueError(f"run '{run_name}' already has test metrics {already}; "
                          "the test split is evaluated only once")
+
+
+def log_test_results(run_id: str, threshold: float, m: dict, c: dict, table, hours,
+                     top_predicted, top_actual, pearson: float) -> None:
+    """Log the one test evaluation onto the winning run, every name prefixed with test_."""
+    with mlflow.start_run(run_id=run_id):              # reopen the finished winning run
+        mlflow.log_metrics({f"test_{key}": value for key, value in m.items()})
+        mlflow.log_metrics({f"test_{key}": value for key, value in c.items()})
+        mlflow.log_metrics({"test_threshold": threshold, "test_route_pearson": pearson})
+        mlflow.log_text(table.to_csv(index=False), "test/threshold_table.csv")
+        mlflow.log_text(hours.to_csv(), "test/calibration_by_hour.csv")
+        mlflow.log_text(top_predicted.to_csv(), "test/top_routes_predicted.csv")
+        mlflow.log_text(top_actual.to_csv(), "test/top_routes_actual.csv")
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Evaluate the saved LateNet on one split.")
+    parser.add_argument("split", choices=["val", "test"], help="which split to score")
+    parser.add_argument("--threshold", type=float, default=0.5, help="operating threshold")
+    parser.add_argument("--run-id", help="the winning MLflow run (test only; results are logged to it)")
+    args = parser.parse_args(argv)
+    if args.split == "test" and not args.run_id:
+        parser.error("the test split needs --run-id: its results are logged to the winning run")
+    if args.split == "val" and args.run_id:
+        parser.error("--run-id is only for the test split")
+
+    model, checkpoint = load_model()
+    if args.split == "test":                        # check the rules BEFORE opening the test data
+        setup_mlflow()
+        run = mlflow.get_run(args.run_id)
+        check_test_run(run.info.run_name, run.data.metrics, checkpoint)
+
+    path = SPLIT_DIR / f"{args.split}.parquet"
+    verify_split(path, dvc_md5(args.split))         # the file is the version DVC recorded
+    df = pd.read_parquet(path)
+    check_inputs(df)                                # the same input guards as training
+    prob = predict(model, df, checkpoint)
+    y = df[LABEL].to_numpy(dtype=int)
+    t = args.threshold
+
+    m = headline_metrics(y, prob, t)
+    c = confusion(y, prob, t)
+    table = threshold_table(y, prob)
+    hours = calibration_by_hour(df, prob)
+    top_predicted, top_actual, pearson = route_check(df, prob)
+
+    print(f"\n{args.split}: {len(df):,} rows, late rate {y.mean():.1%}, threshold {t}")
+    print(f"majority baseline accuracy {m['majority_baseline']:.4f}")
+    print(f"accuracy at 0.5 {m['accuracy_at_0.5']:.4f} | at {t}: {m['accuracy']:.4f}")
+    print(f"AUC-ROC {m['auc_roc']:.4f} | PR-AUC {m['pr_auc']:.4f}")
+    print(f"precision {m['precision']:.4f} | recall {m['recall']:.4f} (at {t})")
+    print("\nconfusion matrix at", t, "(rows = actual, columns = predicted)")
+    print(f"{'':>10} {'on time':>12} {'late':>12}")
+    print(f"{'on time':>10} {c['tn']:>12,} {c['fp']:>12,}")
+    print(f"{'late':>10} {c['fn']:>12,} {c['tp']:>12,}")
+    print("\nthreshold table\n" + table.round(4).to_string(index=False))
+    print("\ncalibration by hour (gap: + too pessimistic, - too optimistic)\n"
+          + hours.round(4).to_string())
+    print(f"\nroutes with 1,000+ rows: Pearson r, predicted vs actual late rate = {pearson:.3f}")
+    print("top 5 by predicted late rate\n" + top_predicted.round(4).to_string())
+    print("top 5 by actual late rate\n" + top_actual.round(4).to_string())
+
+    if args.split == "test":
+        log_test_results(args.run_id, t, m, c, table, hours, top_predicted, top_actual, pearson)
+        export_runs()                               # mlflow_runs.csv now includes the test metrics
+        print(f"\ntest results logged to run {args.run_id}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
