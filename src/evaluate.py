@@ -146,3 +146,15 @@ def route_check(df: pd.DataFrame, prob, min_rows: int = 1000, top: int = 5):
     top_actual = routes.nlargest(top, "actual")                 # the really 5 latest routes
     pearson = float(routes["predicted"].corr(routes["actual"])) # 1 = perfect agreement, 0 = none
     return top_predicted, top_actual, pearson
+
+
+def check_test_run(run_name: str, run_metrics: dict, checkpoint: dict) -> None:
+    """Refuse to score the test split unless it is the first time, for the right model."""
+    model_run = checkpoint["config"]["run_name"]
+    if run_name != model_run:                       # the run id must belong to the saved model
+        raise ValueError(f"run '{run_name}' is not the run that produced the saved model "
+                         f"('{model_run}'); check --run-id and models/latenet.pt")
+    already = sorted(key for key in run_metrics if key.startswith("test_"))
+    if already:                                     # test results already logged: test was used
+        raise ValueError(f"run '{run_name}' already has test metrics {already}; "
+                         "the test split is evaluated only once")

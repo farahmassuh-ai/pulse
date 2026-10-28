@@ -9,7 +9,7 @@ import pytest
 # reads the YAML config file
 import yaml
 # the function we're testing
-from evaluate import load_model, headline_metrics, predict, confusion, threshold_table, calibration_by_hour, route_check
+from evaluate import load_model, headline_metrics, predict, confusion, threshold_table, calibration_by_hour, route_check, check_test_run
 # repo folder and fake data maker (already been written)
 from test_train_latenet import ROOT, synthetic_split
 # tools from the training script
@@ -117,3 +117,23 @@ def test_route_check_skips_small_routes_and_ranks_the_rest():
     assert list(top_predicted.index) == ["A", "B"]   # D has the highest prediction but only 1 trip
     assert list(top_actual.index) == ["A", "B"]
     assert pearson == pytest.approx(1.0)             # predictions rise exactly with actual rates
+
+
+# placed here for ease
+FINAL_CHECKPOINT = {"config": {"run_name": "latenet_final"}}
+
+
+def test_first_test_run_on_the_right_model_is_allowed():
+    check_test_run("latenet_final", {"val_auc_roc": 0.763}, FINAL_CHECKPOINT)   # no error
+
+
+def test_a_second_test_run_is_refused():
+    metrics = {"val_auc_roc": 0.763, "test_auc_roc": 0.74}
+    with pytest.raises(ValueError, match="evaluated only once"):
+        check_test_run("latenet_final", metrics, FINAL_CHECKPOINT)
+
+
+def test_the_wrong_run_id_is_refused():
+    with pytest.raises(ValueError, match="not the run that produced the saved model"):
+        check_test_run("latenet_wide", {"val_auc_roc": 0.759}, FINAL_CHECKPOINT)
+
