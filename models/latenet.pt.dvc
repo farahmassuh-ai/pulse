@@ -1,0 +1,5 @@
+outs:
+- md5: 49494f5451712ffae780b451163d2098
+  size: 160245
+  hash: md5
+  path: latenet.pt
