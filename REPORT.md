@@ -186,16 +186,29 @@ At the operating threshold of 0.45, recall held steady (0.682 on validation, 0.6
 **Rider-experience rationale:** _(your reasoning)_
 
 ## 6. Reproducibility
-- **Git commit:** _(hash)_
-- **DVC versions (md5):** train `6dbba79a079af00a8eb33995744dcce1`, val `59c88b7daeb30ba6dd2a2ba50d360bd8`, test `1984178d852bc39db62c55af6a2e74af`
+- **Git commit:** `cf46d60` (`cf46d60c380f06fdf0ee8581501061213b26e7b8`), the commit MLflow logged
+  for the winning run `latenet_final` (run id `de577f1e165a498aa88476bc974d3673`). The training code
+  and `configs/final.yaml` are unchanged between that commit and the latest one.
+- **DVC versions (md5):** train `6dbba79a079af00a8eb33995744dcce1`, val `59c88b7daeb30ba6dd2a2ba50d360bd8`, test `1984178d852bc39db62c55af6a2e74af`, model `models/latenet.pt` `49494f5451712ffae780b451163d2098`.
+  Stored in the public repo `farahmassuh-ai/pulse-dvc-store`; `dvc pull` needs no credentials.
 - **MLflow experiment:** `pulse`
-- **Registered model:** `pulse-latenet`, version _(n)_, stage Production
+- **Registered model:** `pulse-latenet`, version 1, stage Production (alias `production`)
 - **Exact command(s) to reproduce the winning run:**
   ```bash
-  _(command)_
+  dvc pull
+  python src/train_latenet.py configs/final.yaml
   ```
-- **Serving latency** (`python src/latency_check.py`): median 10.4 ms, p95 10.7 ms, max 11.0 ms
-  per single-row prediction (1,000 timed requests after 10 warm-up calls; each covers the input
+  Before training, the script checks the train and val files' md5 against their `.dvc` pointers
+  (training never opens test). Expect validation AUC ≈ 0.763 (seed 42; seeds 7 and 123 gave 0.7623
+  and 0.7624); the last digits can differ slightly across machines. Running it overwrites
+  `models/latenet.pt`, logs a new run to `pulse` and re-exports `mlflow_runs.csv`; the numbers in
+  this report come from the registered version 1 and the DVC-tracked file.
+- **Logging notes:** the model is logged with `serialization_format="pickle"`, because MLflow 3's
+  `pt2` format failed with this project's torch 2.2.2. MLflow 3 stores it as a logged model
+  (`models:/m-8b9b67470af943a796f9e14bb5b3ed3f`), and version 1 was registered from it. No input
+  signature was logged.
+- **Serving latency** (`python src/latency_check.py`): median 10.4 ms, p95 10.7 ms, 
+  max 11.0 ms per single-row prediction (1,000 timed requests after 10 warm-up calls; each covers the input
   guards, encoding with the saved vocabulary and scaler, the forward pass and the sigmoid), well
   under the ~200 ms budget. Model load: 67 ms, once at startup. Measured CPU-only on an Intel
   Core i9-9880H @ 2.30 GHz, torch 2.2.2, 8 threads. Note: `predict` also reads the label column
