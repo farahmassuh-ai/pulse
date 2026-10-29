@@ -185,29 +185,32 @@ Chosen on the validation weeks (June 1–15), before the test split was opened:
 
 **Chosen operating threshold:** 0.45
 
-**Rider-experience rationale:** A warning helps a rider plan: wait less at the stop, or pick
-another bus. The two mistakes cost different things. A missed late bus means a longer wait, but
-the rider still catches it. A false alarm is worse: a rider who trusts it may arrive later and miss
-a bus that was on time, and too many false alarms teach riders to ignore the app. A warning that
-misses most late buses is useless too, so the threshold has to balance both.
+**Rider-experience rationale:** A warning tells a rider to leave a few minutes early. The expensive
+mistake is a missed late bus: the rider gets no warning and ends up late. A false alarm is cheap:
+the rider just leaves a little early. But if the app warns on too many trips, riders stop paying
+attention, and the warning means nothing. So the goal is to catch as many late buses as possible
+(recall), while keeping enough warnings right that riders still trust them (precision).
 
-At 0.40 the app would warn on about 2 in 5 on-time trips (38.8%): too many false alarms. At 0.50
-it would miss about 4 in 10 late buses (recall 0.596): too many misses. At 0.45 about 7 in 10
-warnings are right (precision 0.692) and about 7 in 10 late buses get a warning (recall 0.682).
-It also had the best validation accuracy of the six thresholds tested (0.694).
+At 0.50 the app would miss about 4 in 10 late buses (recall 0.596): too many of the expensive
+mistakes. At 0.40 it would catch more (recall 0.766), but it would warn on more than half of all
+trips (57.4%), so the warning would stop meaning much. At 0.45 it catches about 7 in 10 late buses
+(recall 0.682), and about 7 in 10 warnings are right (precision 0.692, well above the 49.2% that
+guessing would give). It also had the best validation accuracy of the six thresholds tested (0.694).
 
 **On the test weeks:** the threshold stayed at 0.45, as decided before test was opened. Fewer
-buses were late (43.3% vs 49.2%) and the model did not adjust, so it still warned about 2 in 3
-late buses (recall 0.686), but about 4 in 10 warnings were wrong instead of 3 in 10 (precision
-0.606 vs 0.692). Riders would have seen more false alarms.
+buses were late (43.3% vs 49.2%), but the model did not adjust. The main goal held: it still warned
+about 2 in 3 late buses (recall 0.686). The cost was more unnecessary warnings: about 4 in 10
+warnings were wrong instead of 3 in 10 (precision 0.606 vs 0.692). That is still well above the
+43.3% that guessing would give on those weeks, but it is the direction that wears down trust.
 
 **How often to re-pick the threshold:** check every week and re-pick every two weeks, using the
-last two weeks of trips. Rule: keep false alarms at or below about 30% of on-time trips while still
-warning about at least 60% of late buses; if both can't be met, retrain instead. Re-pick early if
-false alarms go above about 35% of on-time trips, or the late rate moves by more than about 3
-points. These limits are starting values to tune, not numbers taken from the data. Changing the
-threshold only patches the problem; the real fix for shifting data is retraining on recent trips
-(section 7).
+last two weeks of trips. Rule: choose the lowest threshold (the most late buses caught) that keeps
+precision at or above about 0.65 and warns on no more than about half of all trips. If that would
+push recall below about 0.60, retrain instead. Re-pick early if precision drops below 0.65, more
+than half of trips get a warning, or the late rate moves by more than about 3 points. These limits
+are starting values to tune; they were set so that the rule picks 0.45 on the validation weeks.
+Changing the threshold only patches the problem; the real fix for shifting data is retraining on
+recent trips (section 7).
 
 ## 6. Reproducibility
 - **Git commit:** `cf46d60` (`cf46d60c380f06fdf0ee8581501061213b26e7b8`), the commit MLflow logged
@@ -246,13 +249,19 @@ threshold only patches the problem; the real fix for shifting data is retraining
   trips were late. In June it kept predicting about the same (45.5% and 45.8%), but the real rate
   moved: 49.2% in the first half, 43.3% in the second. So it predicted too low first, then too high,
   and in late June riders got more false alarms.
-  *Fix:* retrain on the latest weeks of trips, for example every two weeks, and check the
-  false-alarm rate every week (section 5).
+  *Fix:* retrain on the latest weeks of trips, for example every two weeks, and check recall
+  and precision every week (section 5).
 - **It only knows the timetable.** It sees the route, stop, hour, day, direction and a few details
   about the stop and the schedule, so it only knows what usually happens on that trip. It can't see
   what is happening right now: traffic, weather, events, or whether the bus is already late at
   earlier stops.
   *Fix:* add those, starting with the bus's current delay, likely the strongest clue for the next stop.
+- **It can't score live trips yet.** One of its inputs, `standard_type` (whether a stop is judged
+  by the timetable or by the gap between buses), isn't in the MBTA API, and the daily pull leaves it
+  empty (`ml_spec.md`, section 3). The model rejects missing inputs, so it can't score live trips
+  until that value has a source.
+  *Fix:* find a reliable lookup for it (for example by trip pattern or time of day), or retrain
+  without it and compare the results.
 - **It can't see changes on one route.** The model learned how late each route usually was. Route 31
   was late 64.4% of the time in April–May, and the model predicted about that (0.635). In June the
   route got later: 0.752 on validation and 0.697 on test. Something changed after training, such as
