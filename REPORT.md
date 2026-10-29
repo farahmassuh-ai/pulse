@@ -199,8 +199,10 @@ At the operating threshold of 0.45, recall held steady (0.682 on validation, 0.6
   python src/train_latenet.py configs/final.yaml
   ```
   Before training, the script checks the train and val files' md5 against their `.dvc` pointers
-  (training never opens test). Expect validation AUC ≈ 0.763 (seed 42; seeds 7 and 123 gave 0.7623
-  and 0.7624); the last digits can differ slightly across machines. Running it overwrites
+  (training never opens test). Verified: a fresh clone + `dvc pull` + this command
+  reproduced the winning run bit-for-bit on the same machine (best epoch 35, val AUC 0.7631, identical
+  vocabulary and scaler, largest weight difference 0.0; about 10 minutes, 38 epochs at ~15 s each).
+  On other hardware the last digits may differ slightly (seeds 7 and 123 gave 0.7623 and 0.7624, for scale). Running it overwrites
   `models/latenet.pt`, logs a new run to `pulse` and re-exports `mlflow_runs.csv`; the numbers in
   this report come from the registered version 1 and the DVC-tracked file.
 - **Logging notes:** the model is logged with `serialization_format="pickle"`, because MLflow 3's
