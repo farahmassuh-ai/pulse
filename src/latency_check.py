@@ -67,7 +67,7 @@ def main(argv=None) -> int:
     # one real row from validation (test stays untouched); [[0]] keeps it a 1-row table, not a Series
     row = pd.read_parquet(SPLIT_DIR / "val.parquet").iloc[[0]]
 
-        # warm-up: untimed calls absorb one-time setup costs (lazy initialisation in PyTorch and pandas)
+    # warm-up: untimed calls absorb one-time setup costs (lazy initialisation in PyTorch and pandas)
     for _ in range(args.warmup):
         time_one_request(model, checkpoint, row)
 
