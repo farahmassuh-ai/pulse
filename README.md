@@ -25,7 +25,7 @@ dvc pull
 ```bash
 python src/train_latenet.py configs/final.yaml
 ```
-About 10 minutes on a laptop CPU: 38 epochs, early stopping keeps epoch 35 (validation AUC 0.7631).
+About 10 minutes on the author's laptop CPU: 38 epochs, early stopping keeps epoch 35 (validation AUC 0.7631).
 On the author's machine this reproduces `models/latenet.pt` bit-for-bit (REPORT section 6).
 It overwrites `models/latenet.pt` and logs the run to a local MLflow store (`mlflow.db`, `mlruns/`).
 
@@ -38,6 +38,10 @@ python -m pytest
 `evaluate.py` scores the validation split at the chosen threshold, and `latency_check.py` times one
 prediction on CPU. The test split was scored once, for the final evaluation (REPORT section 4), and
 is not meant to be scored again.
+
+The local MLflow store (`mlflow.db`, `mlruns/`) is not in Git, so a fresh clone starts empty. All 14
+original runs are exported in `mlflow_runs.csv`. To browse your own runs:
+`mlflow ui --backend-store-uri sqlite:///mlflow.db`
 
 ## Full pipeline: rebuild the dataset from raw data
 
@@ -87,9 +91,9 @@ python -m pytest
 **8. Split by time and freeze the splits with DVC** (Task 2, Step 3):
 ```bash
 python src/make_splits.py
-dvc init        # once
 dvc add data/splits/train.parquet data/splits/val.parquet data/splits/test.parquet
 ```
+The repo is already set up for DVC; in a brand-new repo, run `dvc init` once first.
 April-May -> train, June 1-15 -> validation, June 16-30 -> test. Only the `.dvc` pointer
 files go into Git. The test split stays untouched until the final evaluation.
 
@@ -100,6 +104,19 @@ python src/train_baselines.py
 Configs are in `configs/baseline_majority.yaml` and `configs/baseline_logreg.yaml`.
 Runs are stored locally in `mlflow.db` and `mlruns/` and exported to `mlflow_runs.csv`.
 To browse them: `mlflow ui --backend-store-uri sqlite:///mlflow.db`
+
+**10. Train LateNet, evaluate once on test, and register it** (Task 3):
+```bash
+python src/train_latenet.py configs/final.yaml
+python src/evaluate.py val --threshold 0.45
+python src/evaluate.py test --threshold 0.45 --run-id RUN_ID
+python src/register_model.py RUN_ID
+```
+Replace `RUN_ID` with the winning run's id. Every LateNet config in `configs/` was trained the same
+way, one `train_latenet.py` run per file (the two `baseline_` configs come from step 9). The test
+command is for the single final evaluation: it refuses a run that already has test results.
+`register_model.py` registers the run as `pulse-latenet` and promotes it to Production; it refuses
+if a version already exists.
 
 ## Layout
 ```

@@ -32,7 +32,7 @@ Both models were trained on the train split and scored on the validation split. 
 - **What the baselines tell us:** the logistic regression is about 15 points more accurate than the majority class and raises AUC from 0.50 to 0.72, so route, stop, and time of day carry real signal about whether a bus will be late. The signal is still weak, so there is plenty of room to improve in Task 3.
 
 ## 3. Model Development
-Every run below is in the MLflow experiment `pulse` (exported to `mlflow_runs.csv`). Each LateNet variant changes one setting relative to latenet_epochs40; latenet_final combines the changes that helped. All scores are on the validation split.
+Every run below is in the MLflow experiment `pulse` (exported to `mlflow_runs.csv`). latenet_base is the first network, and latenet_epochs40 gives it more epochs. Each run after that changes one setting relative to latenet_epochs40. latenet_final combines the changes that helped, and the two seed runs repeat it with different random seeds. All scores are on the validation split.
 
 | Run name | Model | Key settings | Val accuracy | Val AUC-ROC | Val PR-AUC |
 |---|---|---|---|---|---|
@@ -48,36 +48,38 @@ Every run below is in the MLflow experiment `pulse` (exported to `mlflow_runs.cs
 | latenet_batch1024 | LateNet | batch size 1024 (~18 s/epoch; best epoch 38) | 0.685 | 0.756 | 0.744 |
 | latenet_no_point_type | LateNet | without point_type (24,485 params; best epoch 36) | 0.681 | 0.753 | 0.741 |
 | **latenet_final** | LateNet | **hidden 128-64 + lr 0.003 + patience 3 (33,261 params; best epoch 35)** | **0.690** | **0.763** | **0.752** |
+| latenet_final_seed7 | LateNet | as final, seed 7 (seed check; best epoch 28) | 0.689 | 0.762 | 0.751 |
+| latenet_final_seed123 | LateNet | as final, seed 123 (seed check; best epoch 34) | 0.689 | 0.762 | 0.751 |
 
 **What improved results, what didn't, and my hypothesis why:**
-The base run reached a validation AUC of 0.749, 0.030 above the logistic regression's 0.719. That is a modest gain, which is believable for these inputs. Leakage is also ruled out by design: every input (route, stop, hour, day of week, point type, direction, standard type and time-point order) is known from the schedule before the bus runs; nothing comes from the actual arrival time.
+The base run reached a validation AUC of 0.749, 0.030 above the logistic regression (0.719). That is a modest, believable gain for these inputs. Leakage is ruled out by design: every input (route, stop, hour, day of week, point type, direction, weekend, standard type and time-point order) comes from the schedule, which is known before the bus runs. Nothing comes from the actual arrival time.
 
-Train and validation loss stayed almost equal throughout (0.5943 vs 0.5957 at the end), so the model is not overfitting. The best epoch was the last one allowed (15), and validation AUC was still rising, which suggests the model could improve with more epochs.
+Train and validation loss stayed almost equal (0.5943 vs 0.5957 at the end), so the model was not overfitting. The best epoch was the last one allowed (15), and validation AUC was still rising, so more epochs could help.
 
-For the next run I raised the maximum number of epochs to 40, because the base run showed that AUC kept rising; the best epoch moved to 26 and AUC rose to 0.752.
+**More epochs:** I raised the limit to 40. The best epoch moved to 26 and AUC rose to 0.752. This run is the reference for the single-change runs below.
 
-Adding capacity to the hidden layers helped: the wider network gained 0.0071 AUC over the 40-epoch run and the deeper one 0.0036. Relative to the parameters each added, width and depth did about the same, so the evidence points to capacity helping rather than width being better than depth.
+**More capacity in the hidden layers helped.** The wider network gained 0.0071 AUC over the 40-epoch run, and the deeper one 0.0037. The wider one also added about twice as many parameters (8,640 vs 4,160), so per parameter they did about the same: more capacity helped, and width was not clearly better than depth.
 
-Adding capacity to the stop embedding helped least: doubling it to 32 numbers per stop added 19,744 parameters but gained only 0.0021 AUC, likely because 16 numbers per stop already describe the stops well enough, so the extra room went mostly unused.
+**A bigger stop embedding helped least.** Going from 16 to 32 numbers per stop added 19,744 parameters but gained only 0.0021 AUC, likely because 16 numbers already describe the stops well enough.
 
-A larger learning rate (0.003) learned faster: it reached the 40-epoch run’s final AUC by epoch 12 and ended 0.0032 higher. A smaller batch size (1024) gained a similar amount (0.0037), but each epoch took about 1.8 times as long and it needed 38 epochs, so I left it out of the final model.
+**Training settings.** A larger learning rate (0.003) learned faster: it matched the 40-epoch run's final AUC by epoch 12 and ended 0.0032 higher. A smaller batch size (1024) gained about the same (0.0038), but each epoch took about 1.8 times as long and it needed 38 epochs, so I left it out.
 
-Two changes made no clear difference. Removing dropout scored lower (0.749), but the run stopped early at epoch 14 (best epoch 12) on a wobble of a ten-thousandth, so the lower score mostly reflects fewer epochs of training, not worse learning. That fits the curves: the model was not overfitting, so dropout had little to prevent.
+**Two changes made no clear difference.** Removing dropout scored lower (0.749), but that run stopped early at epoch 14 (best epoch 12) after two tiny dips of less than 0.0003, so the lower score likely reflects fewer epochs, not worse learning. That fits the curves: the model was not overfitting, so dropout had little to prevent. Removing point type changed AUC by only 0.0010, about the size of the run-to-run wobble (0.0008, see the seed check below), likely because time-point order already tells the model where in the trip a stop is.
 
-Removing point type changed AUC by only 0.0010, within the run-to-run wobble, likely because time-point order already tells the model where in the trip a stop is.
+**The final model** combines the two changes that helped most: the wider hidden layers and the 0.003 learning rate. I also raised early-stopping patience from 2 to 3, because most runs had stopped after two tiny dips (each under 0.0005), so some may have stopped too early. The gains added up almost exactly (0.0104 separately, 0.0108 combined), likely because the two changes affect different things: how much the network can learn, and how fast. Patience 3 mattered: with patience 2 the run would have stopped at epoch 31, before its best epoch (35).
 
-For the final model I combined the two changes that helped most: the wider hidden layers and the learning rate of 0.003. I also raised early-stopping patience from 2 to 3, because two runs had stopped on a wobble. The gains added up almost exactly (0.0103 separately, 0.0108 combined), likely because the two changes affect different things: the network’s capacity and how fast it learns. Patience 3 mattered too: with patience 2 the run would have stopped at epoch 31 instead of reaching its best at epoch 35.
+It reached a validation AUC of 0.763, 0.045 above the logistic regression and the best of all runs. Overall the sweep was flat: the single-change runs all landed between 0.749 and 0.759 AUC.
 
-The final model reached a validation AUC of 0.763, 0.045 above the logistic regression (0.719), and the best of all runs. The sweep was flat: all LateNet variants landed within about 0.01 AUC of each other.
+**Seed check:** to make sure the final result was not luck, I trained the final setting two more times with different random seeds (`configs/final_seed7.yaml` and `configs/final_seed123.yaml`). Validation AUC was 0.7631, 0.7623 and 0.7624: a spread of 0.0008, much smaller than the final model's 0.0036 lead over the next best run (latenet_wide).
 
 **Final architecture and parameter count:**
-The network uses nine inputs. Five of them (route, stop, hour, day of week and point type) are turned into integer indexes using a vocabulary built only from the train split. A value that never appeared in training gets the number 0.
+The network has nine inputs. Five are categories: route, stop, hour, day of week and point type. Each value becomes an integer index from a vocabulary built on the train split only, and a value never seen in training gets index 0. Each index then picks a small learned embedding.
 
-The other four are numbers. Direction, weekend and standard type become 0/1 flags, and time-point order is scaled to the range 0–1 using the minimum and maximum from the train split.
+The other four are numbers: direction, weekend and standard type as 0/1 flags, and time-point order scaled to 0–1 using the train split's minimum and maximum.
 
-The embeddings and the four numeric inputs are joined into one list of 37 numbers, which goes through two hidden layers of 128 and 64 neurons (ReLU, dropout 0.1). The output layer gives one number per trip with no sigmoid, because the loss, BCEWithLogitsLoss, applies it during training.
+The embeddings (33 numbers) and the four numeric inputs are joined into 37 numbers, which go through two hidden layers of 128 and 64 neurons (ReLU, dropout 0.1). The output is one number per trip, without a sigmoid, because the loss (BCEWithLogitsLoss) applies it during training.
 
-It is trained with Adam at a learning rate of 0.003, in batches of 4,096 trips, for up to 40 epochs. Training stops when validation AUC has not improved for 3 epochs, and the weights from the best epoch are kept.
+Training: Adam with a learning rate of 0.003, batches of 4,096 trips, up to 40 epochs. Training stops when validation AUC has not improved for 3 epochs, and the weights from the best epoch are kept.
 
 Parameter count: 33,261 (latenet_final).
 
@@ -138,9 +140,9 @@ Gap = predicted − actual: positive means the model was too pessimistic, negati
 | 22 | 41,097 | 0.471 | 0.498 | -0.027 |
 | 23 | 38,751 | 0.434 | 0.454 | -0.019 |
 
-On the test weeks the model was mostly too pessimistic: its predicted late rate was above the actual one in most daytime hours, by up to 0.078 during the morning and afternoon rush. On validation it had been the opposite, too optimistic in almost every hour. The reason is that the overall late rate moved: about 46% in training, 49.2% in the first half of June and 43.3% in the second half. The model’s predictions sit near the training level, so they ran too low when June got later and too high when it got less late. The model’s average predicted probability was almost identical in both halves of June (45.5% and 45.8%), close to the training late rate of 45.7%, while the actual rate moved to 49.2% and then 43.3%.
+On the test weeks the model was mostly too pessimistic: in most daytime hours it predicted more lateness than happened, by up to 0.078 in the morning rush. On validation it was the opposite: too optimistic in almost every hour. The reason is that the real late rate moved, but the model's predictions did not. Training was about 46% late, the first half of June 49.2%, and the second half 43.3%. The model's average prediction stayed near the training level in both halves of June (45.5% and 45.8%), so it was too low in early June and too high in late June.
 
-A likely explanation for the drop in the second half of June is that schools close and summer vacations begin, so there are fewer commuters and lighter traffic. The data in this project cannot confirm it. The few early-morning hours with very few trips (for example hour 3, with 341 rows) are too small to read anything from.
+One possible reason for the drop in late June is that schools close and summer vacations start, so there are fewer commuters and lighter traffic. The data in this project can't confirm it. Hours with very few trips, like hour 3 (341 rows), are too small to read anything from.
 
 **Route-level sanity check: top-5 predicted-late routes vs. actual:**
 
@@ -166,13 +168,13 @@ Top 5 routes by **actual** late rate:
 
 Pearson correlation between predicted and actual route late rates: 0.913 on test (0.953 on validation).
 
-The model still ranks routes well: across routes with 1,000+ trips, its predicted late rates correlate with the actual ones at r = 0.913 (0.953 on validation). Route 35 is the latest route in both lists, and two of the actual top 5 routes appear in the model’s top 5.
+The model still ranks routes well: across routes with 1,000+ trips, its predicted and actual late rates correlate at r = 0.913 (0.953 on validation). Route 35 is the latest route in both lists, and two of the actual top 5 (35 and 44) are also in the model's top 5.
 
-The weaker agreement on test likely explains part of the AUC drop. Some routes changed in the second half of June in ways the model could not know: route 52 ran later than predicted in the first half of June (0.719 actual vs 0.676 predicted) but much less late in the second half (0.561 vs 0.682). Other routes are under-predicted throughout June: route 31 was later than predicted on both validation (0.752 vs 0.635) and test (0.697 vs 0.639), so its lateness rose after the April–May training period (64.4% late in April–May).
+The weaker match on test likely explains part of the AUC drop. Some routes changed in ways the model could not know. Route 52 was later than predicted in the first half of June (0.719 actual vs 0.676 predicted) but much less late in the second half (0.561 vs 0.682). Route 31 was later than predicted in both halves (0.752 vs 0.635 on validation, 0.697 vs 0.639 on test), because its lateness rose after training (64.4% late in April–May).
 
-Both acceptance bars are met on the test weeks: accuracy at 0.5 was 68.0% (bar: 65%) and AUC-ROC 0.736 (bar: 0.70), 11.3 percentage points above the majority-class baseline of the test weeks (56.7%). As expected, test came in below validation: AUC fell by 0.027 and accuracy at 0.5 by 1.1 percentage points.
+Both acceptance bars are met on the test weeks: accuracy at 0.5 was 68.0% (bar: 65%), 11.3 points above the majority-class baseline (56.7%), and AUC-ROC was 0.736 (bar: 0.70). As expected, test came in below validation: AUC fell by 0.027 and accuracy at 0.5 by 1.1 points.
 
-At the operating threshold of 0.45, recall held steady (0.682 on validation, 0.686 on test), so the model still caught about two-thirds of late buses. Precision fell from 0.692 to 0.606, because fewer buses were actually late in the test weeks and the model, still near the training level, warned on more on-time buses (34.1% vs 29.4%). On the test weeks, 0.45 also had slightly lower accuracy than 0.5 (67.1% vs 68.0%). Section 5 discusses what this means for the threshold.
+At the operating threshold of 0.45, recall held steady (0.682 on validation, 0.686 on test), so the model still caught about two-thirds of late buses. Precision fell from 0.692 to 0.606: fewer buses were late in the test weeks, but the model, still predicting near the training level, warned on more on-time buses (34.1% vs 29.4%). On the test weeks, 0.45 also had slightly lower accuracy than 0.5 (67.1% vs 68.0%). Section 5 explains the threshold choice.
 
 ## 5. Threshold Recommendation
 Chosen on the validation weeks (June 1–15), before the test split was opened:
@@ -226,18 +228,19 @@ recent trips (section 7).
   python src/train_latenet.py configs/final.yaml
   ```
   Before training, the script checks the train and val files' md5 against their `.dvc` pointers
-  (training never opens test). Verified: a fresh clone + `dvc pull` + this command
-  reproduced the winning run bit-for-bit on the same machine (best epoch 35, val AUC 0.7631, identical
-  vocabulary and scaler, largest weight difference 0.0; about 10 minutes, 38 epochs at ~15 s each).
-  On other hardware the last digits may differ slightly (seeds 7 and 123 gave 0.7623 and 0.7624, for scale). Running it overwrites
-  `models/latenet.pt`, logs a new run to `pulse` and re-exports `mlflow_runs.csv`; the numbers in
+  (training never opens test). Verified: a fresh clone + `dvc pull` + this command reproduced the
+  winning run bit-for-bit on the same machine (best epoch 35, val AUC 0.7631, identical vocabulary
+  and scaler, largest weight difference 0.0; about 10 minutes, 38 epochs at ~15 s each). A second
+  fresh clone, in a new Python environment installed only from `requirements.txt`, gave the same
+  numbers at every epoch. On other hardware the last digits may differ slightly (seeds 7 and 123
+  gave 0.7623 and 0.7624, for scale). Running it overwrites `models/latenet.pt`, logs a new run to `pulse` and re-exports `mlflow_runs.csv`; the numbers in
   this report come from the registered version 1 and the DVC-tracked file.
 - **Logging notes:** the model is logged with `serialization_format="pickle"`, because MLflow 3's
   `pt2` format failed with this project's torch 2.2.2. MLflow 3 stores it as a logged model
   (`models:/m-8b9b67470af943a796f9e14bb5b3ed3f`), and version 1 was registered from it. No input
   signature was logged.
-- **Serving latency** (`python src/latency_check.py`): median 10.4 ms, p95 10.7 ms, 
-  max 11.0 ms per single-row prediction (1,000 timed requests after 10 warm-up calls; each covers the input
+- **Serving latency** (`python src/latency_check.py`): median 10.4 ms, p95 10.7 ms, max 11.0 ms
+  per single-row prediction (1,000 timed requests after 10 warm-up calls; each covers the input
   guards, encoding with the saved vocabulary and scaler, the forward pass and the sigmoid), well
   under the ~200 ms budget. Model load: 67 ms, once at startup. Measured CPU-only on an Intel
   Core i9-9880H @ 2.30 GHz, torch 2.2.2, 8 threads. Note: `predict` also reads the label column
@@ -259,19 +262,21 @@ recent trips (section 7).
 - **It can't score live trips yet.** One of its inputs, `standard_type` (whether a stop is judged
   by the timetable or by the gap between buses), isn't in the MBTA API, and the daily pull leaves it
   empty (`ml_spec.md`, section 3). The model rejects missing inputs, so it can't score live trips
-  until that value has a source.
+  until that value has a source. Two other inputs, `time_point_order` and `point_type`, come from a
+  lookup that uses each route, direction and stop's most common value. Those values vary for 31% and
+  10% of the combinations in the historical files, so some live values will not match the trip.
   *Fix:* find a reliable lookup for it (for example by trip pattern or time of day), or retrain
   without it and compare the results.
 - **It can't see changes on one route.** The model learned how late each route usually was. Route 31
-  was late 64.4% of the time in April–May, and the model predicted about that (0.635). In June the
-  route got later: 0.752 on validation and 0.697 on test. Something changed after training, such as
-  a detour, roadwork or more riders. The data can't tell which.
+  was late 64.4% of the time in April–May. In June the model still predicted about that (0.635 in
+  the first half, 0.639 in the second), but the route got later: 0.752 and 0.697. Something changed
+  after training, such as a detour, roadwork or more riders. The data can't tell which.
   *Fix:* regular retraining would catch it, and a weekly per-route check would spot it sooner.
 - **The summer reason is a guess.** Fewer late trips in late June fits schools closing and
   vacations starting, but the data doesn't show that, so it stays a guess.
-- **Most settings were trained only once.** Each run starts randomly, so one run can be lucky or
-  unlucky. I trained the final setting 3 times, and its validation AUC changed by only 0.0008. It
-  beat the runner-up by 0.0037, about 4–5 times more, so the win is very unlikely to be luck. But
+- **Most settings were trained only once.** A run's result depends a little on its random seed
+  (the starting weights and the shuffling), so one run can be lucky or unlucky. I trained the final setting 3 times, and its validation AUC changed by only 0.0008. It
+  beat the runner-up by 0.0036, about 4–5 times more, so the win is very unlikely to be luck. But
   several other settings differ by 0.0005 or less, so their order in the table could change.
   *Fix:* run 3 seeds for the top few settings, not just the winner.
 - **Smaller points:** `requirements.txt` fixes the versions of the packages the project uses, but
