@@ -194,6 +194,12 @@ At the operating threshold of 0.45, recall held steady (0.682 on validation, 0.6
   ```bash
   _(command)_
   ```
+- **Serving latency** (`python src/latency_check.py`): median 10.4 ms, p95 10.7 ms, max 11.0 ms
+  per single-row prediction (1,000 timed requests after 10 warm-up calls; each covers the input
+  guards, encoding with the saved vocabulary and scaler, the forward pass and the sigmoid), well
+  under the ~200 ms budget. Model load: 67 ms, once at startup. Measured CPU-only on an Intel
+  Core i9-9880H @ 2.30 GHz, torch 2.2.2, 8 threads. Note: `predict` also reads the label column
+  (via `to_tensors`); a production endpoint would skip that, which can only make it faster.
 
 ## 7. Limitations & Next Steps
 **What the model can't do; what I'd try with more time:**
