@@ -1,4 +1,4 @@
 [core]
     remote = origin
 ['remote "origin"']
-    url = https://dagshub.com/farahmassuh.ai/pulse-data.dvc
+    url = https://raw.githubusercontent.com/farahmassuh-ai/pulse-dvc-store/main
