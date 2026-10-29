@@ -175,15 +175,39 @@ Both acceptance bars are met on the test weeks: accuracy at 0.5 was 68.0% (bar: 
 At the operating threshold of 0.45, recall held steady (0.682 on validation, 0.686 on test), so the model still caught about two-thirds of late buses. Precision fell from 0.692 to 0.606, because fewer buses were actually late in the test weeks and the model, still near the training level, warned on more on-time buses (34.1% vs 29.4%). On the test weeks, 0.45 also had slightly lower accuracy than 0.5 (67.1% vs 68.0%). Section 5 discusses what this means for the threshold.
 
 ## 5. Threshold Recommendation
-| Threshold | Precision (late) | Recall (late) | Share of trips flagged |
-|---|---|---|---|
-| | | | |
-| | | | |
-| | | | |
+Chosen on the validation weeks (June 1–15), before the test split was opened:
 
-**Chosen operating threshold:** _(value)_
+| Threshold | Precision (late) | Recall (late) | Share of trips flagged | On-time trips warned |
+|---|---|---|---|---|
+| 0.40 | 0.657 | 0.766 | 57.4% | 38.8% |
+| **0.45** | **0.692** | **0.682** | **48.5%** | **29.4%** |
+| 0.50 | 0.726 | 0.596 | 40.5% | 21.9% |
 
-**Rider-experience rationale:** _(your reasoning)_
+**Chosen operating threshold:** 0.45
+
+**Rider-experience rationale:** A warning helps a rider plan: wait less at the stop, or pick
+another bus. The two mistakes cost different things. A missed late bus means a longer wait, but
+the rider still catches it. A false alarm is worse: a rider who trusts it may arrive later and miss
+a bus that was on time, and too many false alarms teach riders to ignore the app. A warning that
+misses most late buses is useless too, so the threshold has to balance both.
+
+At 0.40 the app would warn on about 2 in 5 on-time trips (38.8%): too many false alarms. At 0.50
+it would miss about 4 in 10 late buses (recall 0.596): too many misses. At 0.45 about 7 in 10
+warnings are right (precision 0.692) and about 7 in 10 late buses get a warning (recall 0.682).
+It also had the best validation accuracy of the six thresholds tested (0.694).
+
+**On the test weeks:** the threshold stayed at 0.45, as decided before test was opened. Fewer
+buses were late (43.3% vs 49.2%) and the model did not adjust, so it still warned about 2 in 3
+late buses (recall 0.686), but about 4 in 10 warnings were wrong instead of 3 in 10 (precision
+0.606 vs 0.692). Riders would have seen more false alarms.
+
+**How often to re-pick the threshold:** check every week and re-pick every two weeks, using the
+last two weeks of trips. Rule: keep false alarms at or below about 30% of on-time trips while still
+warning about at least 60% of late buses; if both can't be met, retrain instead. Re-pick early if
+false alarms go above about 35% of on-time trips, or the late rate moves by more than about 3
+points. These limits are starting values to tune, not numbers taken from the data. Changing the
+threshold only patches the problem; the real fix for shifting data is retraining on recent trips
+(section 7).
 
 ## 6. Reproducibility
 - **Git commit:** `cf46d60` (`cf46d60c380f06fdf0ee8581501061213b26e7b8`), the commit MLflow logged
