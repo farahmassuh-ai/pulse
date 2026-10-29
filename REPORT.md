@@ -168,7 +168,7 @@ Pearson correlation between predicted and actual route late rates: 0.913 on test
 
 The model still ranks routes well: across routes with 1,000+ trips, its predicted late rates correlate with the actual ones at r = 0.913 (0.953 on validation). Route 35 is the latest route in both lists, and two of the actual top 5 routes appear in the model’s top 5.
 
-The weaker agreement on test likely explains part of the AUC drop. Some routes changed in the second half of June in ways the model could not know: route 52 ran later than predicted in the first half of June (0.719 actual vs 0.676 predicted) but much less late in the second half (0.561 vs 0.682). Other routes are under-predicted throughout June: route 31 was later than predicted on both validation (0.752 vs 0.635) and test (0.697 vs 0.639), so its lateness likely rose after the April–May training period.
+The weaker agreement on test likely explains part of the AUC drop. Some routes changed in the second half of June in ways the model could not know: route 52 ran later than predicted in the first half of June (0.719 actual vs 0.676 predicted) but much less late in the second half (0.561 vs 0.682). Other routes are under-predicted throughout June: route 31 was later than predicted on both validation (0.752 vs 0.635) and test (0.697 vs 0.639), so its lateness rose after the April–May training period (64.4% late in April–May).
 
 Both acceptance bars are met on the test weeks: accuracy at 0.5 was 68.0% (bar: 65%) and AUC-ROC 0.736 (bar: 0.70), 11.3 percentage points above the majority-class baseline of the test weeks (56.7%). As expected, test came in below validation: AUC fell by 0.027 and accuracy at 0.5 by 1.1 percentage points.
 
@@ -242,7 +242,45 @@ threshold only patches the problem; the real fix for shifting data is retraining
 
 ## 7. Limitations & Next Steps
 **What the model can't do; what I'd try with more time:**
-_(your reasoning)_
+- **It can't keep up when lateness changes.** The model learned from April–May, when about 46% of
+  trips were late. In June it kept predicting about the same (45.5% and 45.8%), but the real rate
+  moved: 49.2% in the first half, 43.3% in the second. So it predicted too low first, then too high,
+  and in late June riders got more false alarms.
+  *Fix:* retrain on the latest weeks of trips, for example every two weeks, and check the
+  false-alarm rate every week (section 5).
+- **It only knows the timetable.** It sees the route, stop, hour, day, direction and a few details
+  about the stop and the schedule, so it only knows what usually happens on that trip. It can't see
+  what is happening right now: traffic, weather, events, or whether the bus is already late at
+  earlier stops.
+  *Fix:* add those, starting with the bus's current delay, likely the strongest clue for the next stop.
+- **It can't see changes on one route.** The model learned how late each route usually was. Route 31
+  was late 64.4% of the time in April–May, and the model predicted about that (0.635). In June the
+  route got later: 0.752 on validation and 0.697 on test. Something changed after training, such as
+  a detour, roadwork or more riders. The data can't tell which.
+  *Fix:* regular retraining would catch it, and a weekly per-route check would spot it sooner.
+- **The summer reason is a guess.** Fewer late trips in late June fits schools closing and
+  vacations starting, but the data doesn't show that, so it stays a guess.
+- **Most settings were trained only once.** Each run starts randomly, so one run can be lucky or
+  unlucky. I trained the final setting 3 times, and its validation AUC changed by only 0.0008. It
+  beat the runner-up by 0.0037, about 4–5 times more, so the win is very unlikely to be luck. But
+  several other settings differ by 0.0005 or less, so their order in the table could change.
+  *Fix:* run 3 seeds for the top few settings, not just the winner.
+- **Smaller points:** `requirements.txt` fixes the versions of the packages the project uses, but
+  not of the packages those depend on, so a new install can differ slightly (likely why one harmless
+  SQLAlchemy warning showed up in a fresh install). `predict` also reads the label column, which a
+  real service would not have.
 
 **How would the picture change if "late" meant five minutes instead of three?**
-_(your argument, qualitative)_
+- **Fewer trips would count as late.** Every bus more than 5 minutes late is also more than 3
+  minutes late, but not the other way round.
+- **Accuracy would become misleading.** If, for example, 80% of trips were not late, a model that
+  always says "not late" would be 80% accurate and pass a 65% bar while being useless. AUC and
+  PR-AUC would matter more, because they check whether the model ranks late trips above on-time
+  ones, which always saying "not late" can't do.
+- **It would probably be harder to predict.** Small delays repeat every day on the same routes and
+  hours, so the timetable can learn them. Big delays more often come from one-off events, like
+  accidents or bad weather, that the model can't see. This is my expectation, not a tested result.
+- **For riders, each warning would matter more, but there would be fewer.** A 5-minute delay is
+  more likely to make someone miss a connection, but the model would warn less often and probably
+  be wrong more often. I'd keep 3 minutes for the main warning and maybe add a separate "big delay"
+  alert later.
