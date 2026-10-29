@@ -2,9 +2,47 @@
 Training and tracking an ML model on real-world data: will an MBTA bus be more than
 3 minutes late at a timepoint stop? (Pulse Reliability Signal, see `ml_spec.md`.)
 
-## Rebuild the dataset from a fresh clone
+## Reproduce the winning model (fresh clone)
 
-Everything runs from the repository root.
+Everything runs from the repository root. The data splits and the trained model come from DVC,
+stored publicly: no account or credentials needed.
+
+**1. Clone and install** (Python 3.12; the versions in `requirements.txt` are the ones tested):
+```bash
+git clone https://github.com/farahmassuh-ai/pulse.git
+cd pulse
+python -m pip install -r requirements.txt
+```
+On Linux the default `torch` package also downloads GPU (CUDA) libraries. For a smaller CPU-only
+install, first run `python -m pip install torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu`.
+
+**2. Get the data splits and the trained model:**
+```bash
+dvc pull
+```
+
+**3. Retrain the winning model (one command):**
+```bash
+python src/train_latenet.py configs/final.yaml
+```
+About 10 minutes on a laptop CPU: 38 epochs, early stopping keeps epoch 35 (validation AUC 0.7631).
+On the author's machine this reproduces `models/latenet.pt` bit-for-bit (REPORT section 6).
+It overwrites `models/latenet.pt` and logs the run to a local MLflow store (`mlflow.db`, `mlruns/`).
+
+**Optional checks:**
+```bash
+python src/evaluate.py val --threshold 0.45
+python src/latency_check.py
+python -m pytest
+```
+`evaluate.py` scores the validation split at the chosen threshold, and `latency_check.py` times one
+prediction on CPU. The test split was scored once, for the final evaluation (REPORT section 4), and
+is not meant to be scored again.
+
+## Full pipeline: rebuild the dataset from raw data
+
+Not needed to reproduce the model: `dvc pull` above already provides the splits. This section
+rebuilds them from the MBTA's raw files through PostgreSQL. Everything runs from the repository root.
 
 **1. Install the packages** (Python 3.12; the versions in `requirements.txt` are pinned for it):
 ```bash
@@ -65,10 +103,12 @@ To browse them: `mlflow ui --backend-store-uri sqlite:///mlflow.db`
 
 ## Layout
 ```
-src/        every script that runs: ingestion and preparation
-configs/    one YAML file per training configuration
+src/        every script that runs: ingestion, preparation, training, evaluation, latency, registration
+configs/    one YAML file per training configuration; configs/final.yaml is the winning one
 data/       DVC-tracked data; only .dvc pointer files are in Git
+models/     DVC-tracked winning model (latenet.pt); only its .dvc pointer is in Git
 notebooks/  exploration only (01 historical files, 02 MBTA API)
 tests/      tests for src/
 assets/     images used in REPORT.md
+REPORT.md   the model delivery report; ml_spec.md is the ML specification
 ```
