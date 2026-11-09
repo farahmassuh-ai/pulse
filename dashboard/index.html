@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LateNet Live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: a quiet dark console. One status line, then four panels: is it learning, is it improving, is it fitting the data, can it tell late from on-time. */
+:root {
+  --bg: #0b1114; --panel: #121b1f; --panel2: #18242a; --fg: #e3ebee; --muted: #93a4ab; --rule: #25343a;
+  --train: #9fb0b7; --val: #f47d3e; --auc: #5cc46d; --warn: #e0a94a;
+  --late: #f47d3e; --ontime: #5a9df0;
+  --a-quiet: #5a9df0; --a-false: #a9c9ff; --a-caught: #f47d3e; --a-missed: #ffb58a;   /* late/on-time chart: blue family = on-time buses, orange family = late buses */
+  --display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --body: "Source Sans 3", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); }
+body { font: 14px/1.45 var(--body); }
+.wrap { max-width: 2400px; margin: 0 auto; padding: 16px max(96px, env(safe-area-inset-right, 0px)) 40px max(96px, env(safe-area-inset-left, 0px)); display: grid; gap: 14px; }
+
+.status { display: grid; gap: 10px; }
+.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+h1 { margin: 0; font: 700 28px/1 var(--display); }
+.pill { font: 600 12px var(--body); padding: 3px 10px; border-radius: 999px; background: var(--panel2); color: var(--muted); }
+.pill.training { background: #173a2a; color: #7fe0a0; }
+.pill.evaluating { background: #3a2e14; color: #f2c46d; }
+.pill.done { background: #1b2a3f; color: #8fbaf5; }
+.stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 1300px) { .wrap { padding-left: 40px; padding-right: 40px; } }
+@media (max-width: 900px) { .wrap { padding-left: 16px; padding-right: 16px; } }
+@media (max-width: 900px) { .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.stat { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; }
+.stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.stat .v { font: 500 18px var(--mono); font-variant-numeric: tabular-nums; }
+.stat .s { font-size: 11.5px; color: var(--muted); }
+.bar { height: 5px; background: var(--panel2); border-radius: 3px; overflow: hidden; }
+.bar > i { display: block; height: 100%; width: 0; background: var(--muted); transition: width .3s; }
+
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 12px; display: grid; gap: 6px; min-width: 0; align-content: start; }
+.card.wide { grid-column: 1 / -1; }
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 600px) { .pair { grid-template-columns: 1fr; } }
+
+.card h2 { margin: 0; font: 700 18px/1.1 var(--display); }
+.note { margin: 0; font-size: 12.5px; color: var(--muted); }
+canvas { display: block; width: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 14px; height: 4px; border-radius: 2px; display: inline-block; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.waiting { background: var(--panel); border: 1px dashed var(--rule); border-radius: 8px; padding: 18px; }
+.key { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); gap: 6px 12px; font-size: 12.5px; color: var(--muted); align-items: start; }
+.key .g { font-weight: 600; color: var(--fg); }
+.key .i { display: flex; align-items: flex-start; gap: 6px; min-width: 0; }
+.key .sq { flex: none; width: 12px; height: 12px; border-radius: 2px; align-self: flex-start; margin-top: 3px; }
+.key .r { display: block; font-size: 11.5px; line-height: 1.3; }
+.key .v { font: 600 10.5px var(--body); padding: 0 6px; border-radius: 999px; vertical-align: 1px; white-space: nowrap; }
+.key .v.good { background: #173a2a; color: #7fe0a0; }
+.key .v.bad { background: #3d1c1c; color: #f29a9a; }
+.key b { color: var(--fg); }
+.plot { position: relative; }
+.tip { position: absolute; z-index: 2; pointer-events: none; background: rgba(11,17,20,.94); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 9px; font: 12px/1.5 var(--body); color: var(--muted); white-space: nowrap; max-width: 280px; }
+.tip .th { color: var(--fg); font-weight: 600; }
+.tip b { color: var(--fg); font-family: var(--mono); font-weight: 500; }
+.tip .tr { margin-top: 4px; }
+.tip .what { font-size: 11px; line-height: 1.3; padding-left: 14px; white-space: normal; max-width: 250px; }
+.guide { position: absolute; width: 1px; background: var(--muted); opacity: .45; pointer-events: none; }
+code { font: 12.5px var(--mono); background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
+@media (prefers-reduced-motion: reduce) { .bar > i { transition: none; } }
+/* desktop: everything fits in one screen, charts take whatever height is left */
+@media (min-width: 900px) and (min-height: 700px) {
+  html, body { height: 100%; overflow: hidden; }
+  .wrap { height: 100vh; grid-template-rows: auto minmax(0, 1fr); padding-bottom: 14px; gap: 12px; }
+  #content { grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); min-height: 0; }
+  .card { display: flex; flex-direction: column; min-height: 0; }
+  .pair { flex: 1; min-height: 0; }
+  .pair .sub { display: flex; flex-direction: column; min-height: 0; }
+  .plot { flex: 1; min-height: 0; position: relative; }
+  .plot canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="status">
+    <div class="top"><h1>LateNet Live</h1><span class="pill" id="pill">waiting</span></div>
+    <div class="stats" id="stats" hidden></div>
+    <div class="bar"><i id="bar"></i></div>
+  </div>
+
+  <div class="waiting" id="waiting">
+    <b>Waiting for a training run.</b> From the repo root, run <code>python src/train_live.py configs/final.yaml</code>. This page picks it up automatically.
+  </div>
+
+  <div class="grid" id="content" hidden>
+    <div class="card">
+      <h2>Is it learning?</h2>
+      <p class="note">Both dots should go down. If white keeps falling while green rises, it is memorizing (overfitting). Hover for values.</p>
+      <div class="plot"><canvas id="c-loss"></canvas></div>
+      <div class="legend"><span><i class="sw" style="background:var(--train)"></i>live, during training</span><span><i class="dot" style="background:var(--fg)"></i>training, end of epoch</span><span><i class="dot" style="background:var(--auc)"></i>validation, end of epoch</span></div>
+    </div>
+    <div class="card">
+      <h2>Is it improving?</h2>
+      <p class="note">Validation AUC after each epoch. It stops after 3 epochs without a new best and keeps the best one. Grey line: your graded model. Hover for values.</p>
+      <div class="plot"><canvas id="c-auc"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Is it fitting the data?</h2>
+      <p class="note">% of bus arrivals over 3 min late, by hour. Dashed = what really happened, solid = predicted. Validation uses weeks it never trains on. Averages only, so a close match does not mean every prediction is right.</p>
+      <div class="pair">
+        <div class="sub"><div class="plot"><canvas id="c-fit-train"></canvas></div><p class="note" id="fit-train-s"></p></div>
+        <div class="sub"><div class="plot"><canvas id="c-fit-val"></canvas></div><p class="note" id="fit-val-s"></p></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Can it tell late from on-time?</h2>
+      <p class="note">Each validation bus arrival gets a predicted chance of being late. The app warns for every bus right of the line. Less overlap between the hills = fewer mistakes (that is what AUC measures).</p>
+      <div class="plot"><canvas id="c-sep"></canvas></div>
+      <div class="key" id="sep-s"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var S = null, lastUpdated = 0, runId = null;
+  var $ = function (id) { return document.getElementById(id); };
+  var C = function (n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); };
+  var MONO = '11px "JetBrains Mono", ui-monospace, Menlo, monospace';
+
+  var FILL = window.matchMedia("(min-width: 900px) and (min-height: 700px)");
+  function setup(id, aspect, minH, maxH) {
+    var cv = $(id), box = cv.parentNode, fill = FILL.matches;
+    var w = (fill ? box.clientWidth : cv.getBoundingClientRect().width) || 300;
+    var h = fill ? Math.max(90, box.clientHeight) : Math.max(minH, Math.min(maxH, Math.round(w * aspect))), dpr = window.devicePixelRatio || 1;
+    cv.style.height = fill ? "" : h + "px";
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    var ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+    return { ctx: ctx, w: w, h: h };
+  }
+  function niceTicks(lo, hi, n) {
+    var span = hi - lo || 1, step = Math.pow(10, Math.floor(Math.log10(span / n))), err = span / n / step;
+    if (err >= 7.5) step *= 10; else if (err >= 3.5) step *= 5; else if (err >= 1.5) step *= 2;
+    var out = []; for (var v = Math.ceil(lo / step) * step; v <= hi + 1e-12; v += step) out.push(+v.toFixed(10)); return out;
+  }
+  // series: [{pts, color, width, dots, lineless}]; o: {xmin, xmax, yfmt, vline, mark}
+  var GEO = {};
+  function chart(id, series, o) {
+    var g = setup(id, 0.55, 220, 340), ctx = g.ctx, L = 50, R = 20, T = 10, B = 22, W = g.w - L - R, H = g.h - T - B;
+    GEO[id] = { L: L, W: W, T: T, H: H, xmin: o.xmin, xmax: o.xmax };
+    var all = []; series.forEach(function (s) { s.pts.forEach(function (p) { if (p[1] != null) all.push(p); }); });
+    if (!all.length) return;
+    var ys = all.map(function (p) { return p[1]; }).concat(o.hline ? [o.hline[0]] : []), ymin = Math.min.apply(null, ys), ymax = Math.max.apply(null, ys), pad = (ymax - ymin) * 0.1 || 0.01;
+    ymin -= pad; ymax += pad;
+    var X = function (x) { return L + (x - o.xmin) / (o.xmax - o.xmin) * W; }, Y = function (y) { return T + (1 - (y - ymin) / (ymax - ymin)) * H; };
+    ctx.font = MONO; ctx.strokeStyle = C("--rule"); ctx.fillStyle = C("--muted"); ctx.lineWidth = 1; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    niceTicks(ymin, ymax, 4).forEach(function (v) { var y = Y(v); ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(L + W, y); ctx.stroke(); ctx.fillText(o.yfmt ? o.yfmt(v) : v, L - 6, y); });
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    niceTicks(o.xmin, o.xmax, Math.max(2, Math.floor(W / 60))).filter(Number.isInteger).forEach(function (v) { ctx.fillText(v, X(v), T + H + 6); });
+    if (o.hline) { var hy = Y(o.hline[0]); ctx.strokeStyle = C("--muted"); ctx.setLineDash([2, 4]); ctx.beginPath(); ctx.moveTo(L, hy); ctx.lineTo(L + W, hy); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = C("--muted"); ctx.textAlign = "left"; ctx.textBaseline = "bottom"; ctx.fillText(o.hline[1], L + 4, hy - 3); }
+    if (o.vline) { ctx.strokeStyle = C("--auc"); ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(X(o.vline), T); ctx.lineTo(X(o.vline), T + H); ctx.stroke(); ctx.setLineDash([]); }
+    series.forEach(function (s) {
+      if (!s.lineless) {
+        ctx.globalAlpha = s.alpha || 1;
+        ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 1.8; ctx.beginPath();
+        s.pts.forEach(function (p, i) { if (i) ctx.lineTo(X(p[0]), Y(p[1])); else ctx.moveTo(X(p[0]), Y(p[1])); }); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      if (s.dots) { ctx.fillStyle = s.color; ctx.strokeStyle = C("--panel"); ctx.lineWidth = s.ring ? 2 : 0;
+        s.pts.forEach(function (p) { ctx.beginPath(); ctx.arc(X(p[0]), Y(p[1]), s.r || 3, 0, 6.3); if (s.ring) ctx.stroke(); ctx.fill(); }); }
+    });
+    if (o.mark) { ctx.strokeStyle = C("--auc"); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(X(o.mark[0]), Y(o.mark[1]), 6, 0, 6.3); ctx.stroke(); }
+    ctx.fillStyle = C("--muted"); ctx.textAlign = "right"; ctx.textBaseline = "bottom"; ctx.fillText("epoch", L + W, T + H - 2);
+  }
+
+  function num(v, d) { return v == null ? "–" : (+v).toFixed(d); }
+  function pct(v) { return v == null ? "–" : Math.round(100 * v) + "%"; }
+  function stat(k, v, s, val) { return '<div class="stat"><div class="k"' + (val ? ' style="color:var(--auc)"' : "") + ">" + k + '</div><div class="v">' + v + '</div><div class="s">' + (s || "&nbsp;") + "</div></div>"; }
+
+  function drawStatus() {
+    var r = S.run, p = S.progress, es = S.early_stopping, done = r.status === "finished" || r.status === "stopped early";
+    var pill = $("pill"); pill.textContent = done ? r.status : p.phase;
+    pill.className = "pill " + (done ? "done" : p.phase === "evaluating" ? "evaluating" : p.phase === "training" ? "training" : "");
+    var ep = S.epochs.filter(function (e) { return e.epoch > 0; }), last = ep[ep.length - 1], o = S.val ? S.val.operating : null;
+    $("stats").hidden = false;
+    $("stats").innerHTML =
+      stat("Epoch", p.epoch + " / " + r.max_epochs, "batch " + p.batch + " / " + r.batches_per_epoch) +
+      stat("Val AUC", num(last ? last.val_auc : null, 4), "last epoch", true) +
+      stat("Best", es.best_epoch ? num(es.best_auc, 4) : "–", es.best_epoch ? "epoch " + es.best_epoch : "", true) +
+      stat("No improvement", es.since + " / " + es.patience, done ? r.status : "stops at " + es.patience) +
+      stat("At 0.45", o ? pct(o.recall) + " caught" : "–", o ? pct(o.precision) + " of warnings right" : "", true);
+    var frac = done ? 1 : ((p.epoch - 1) + p.batch / r.batches_per_epoch) / r.max_epochs;
+    $("bar").style.width = Math.max(0, Math.min(1, frac)) * 100 + "%";
+  }
+
+  var GRADED_AUC = 0.7631;   // validation AUC of the registered model (models/latenet.pt)
+  function drawCharts() {
+    var ep = S.epochs, best = S.early_stopping.best_epoch;
+    var xmax = Math.max(5, Math.ceil(S.progress.epoch || 1));
+    chart("c-loss", [
+      { pts: S.batch_loss, color: C("--train"), width: 1.2, alpha: 0.45 },
+      { pts: ep.filter(function (r) { return r.epoch > 0 && r.train_loss != null; }).map(function (r) { return [r.epoch, r.train_loss]; }), color: C("--fg"), dots: true, lineless: true, r: 4.5, ring: true },
+      { pts: ep.filter(function (r) { return r.epoch > 0; }).map(function (r) { return [r.epoch, r.val_loss]; }), color: C("--auc"), dots: true, lineless: true, r: 4.5, ring: true }],
+      { xmin: 0, xmax: xmax, yfmt: function (v) { return v.toFixed(3); } });
+    var auc = ep.filter(function (r) { return r.epoch > 0; }).map(function (r) { return [r.epoch, r.val_auc]; });
+    var bp = auc.filter(function (p) { return p[0] === best; })[0];
+    chart("c-auc", [{ pts: auc, color: C("--auc"), dots: true }],
+      { xmin: 0, xmax: xmax, yfmt: function (v) { return v.toFixed(3); }, vline: best, mark: bp, hline: [GRADED_AUC, "graded model " + GRADED_AUC] });
+  }
+
+  var reduceMotion = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---------- is it fitting the data? training and validation side by side, same scale ----------
+  var FIT = { from: null, to: null, t0: 0, epoch: null, key: null };
+  function fitSnapshot(s) {
+    if (!s || !s.fit) return;
+    var key = s.fit.epoch + ":" + s.progress.phase;
+    if (FIT.key === key) return;
+    FIT.key = key; FIT.epoch = s.fit.epoch;
+    FIT.from = FIT.to; FIT.to = s.fit; FIT.t0 = performance.now();
+    (function step() { var p = reduceMotion ? 1 : Math.min(1, (performance.now() - FIT.t0) / 700); drawFit(p); if (p < 1) requestAnimationFrame(step); })();
+  }
+  function lerpArr(a, b, p) { return b.map(function (v, i) { return a && a.length === b.length && a[i] != null && v != null ? a[i] + (v - a[i]) * p : v; }); }
+  function drawFit(p) {
+    var f = FIT.to; if (!f) return;
+    var ease = p * p * (3 - 2 * p), from = FIT.from || {};
+    var epochTxt = FIT.epoch === 0 ? "untrained" : FIT.epoch === S.early_stopping.best_epoch && S.progress.phase === "done" ? "epoch " + FIT.epoch + " (kept)" : "after epoch " + FIT.epoch;
+    var all = [];                                           // one shared scale, so the two charts compare directly
+    ["train", "val"].forEach(function (k) { if (f[k] && f[k].hour) all = all.concat(f[k].hour.actual, f[k].hour.pred); });
+    var ymax = Math.max(0.1, Math.max.apply(null, all.filter(function (v) { return v != null; }))) * 1.12;
+    one("train", "c-fit-train", "fit-train-s", "Training", C("--fg"), "var(--fg)");
+    one("val", "c-fit-val", "fit-val-s", "Validation", C("--auc"), "var(--auc)");
+    function one(k, id, sid, name, color, cssColor) {
+      var d = f[k]; if (!d || !d.hour) return;
+      var g = setup(id, 0.6, 200, 300), ctx = g.ctx, L = 36, R = 18, T = 20, B = 20, W = g.w - L - R, H = g.h - T - B;
+      var act = d.hour.actual, n = d.hour.n, pred = lerpArr(from[k] && from[k].hour && from[k].hour.pred, d.hour.pred, ease);
+      var X = function (h) { return L + (h + 0.5) / 24 * W; }, Y = function (v) { return T + (1 - v / ymax) * H; };
+      ctx.font = MONO; ctx.fillStyle = C("--muted"); ctx.strokeStyle = C("--rule"); ctx.lineWidth = 1; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+      niceTicks(0, ymax, 4).forEach(function (v) { ctx.beginPath(); ctx.moveTo(L, Y(v)); ctx.lineTo(L + W, Y(v)); ctx.stroke(); ctx.fillText(Math.round(v * 100) + "%", L - 5, Y(v)); });
+      ctx.textAlign = "center"; ctx.textBaseline = "top";
+      [0, 6, 12, 18, 23].forEach(function (h) { ctx.fillText(h + ":00", X(h), T + H + 5); });
+      ctx.textAlign = "left"; ctx.fillStyle = color; ctx.font = "600 12px " + C("--body"); ctx.fillText(name, L, 2);
+      var nameW = ctx.measureText(name).width;
+      ctx.fillStyle = C("--muted"); ctx.font = MONO; ctx.fillText(" · " + epochTxt, L + nameW, 3);
+      function line(vals, c, w, dash) { ctx.strokeStyle = c; ctx.lineWidth = w; ctx.setLineDash(dash || []); ctx.beginPath(); var on = false;
+        vals.forEach(function (v, h) { if (!n[h]) { on = false; return; } if (on) ctx.lineTo(X(h), Y(v)); else { ctx.moveTo(X(h), Y(v)); on = true; } }); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = c; vals.forEach(function (v, h) { if (n[h]) { ctx.beginPath(); ctx.arc(X(h), Y(v), 2.2, 0, 6.3); ctx.fill(); } }); }
+      line(pred, color, 2.2); line(act, C("--muted"), 1.8, [6, 4]);   // actual on top, so it shows even where they overlap
+      $(sid).innerHTML = '<span style="color:var(--muted)">- -</span> actual &nbsp;<span style="color:' + cssColor + '">●</span> predicted &nbsp;·&nbsp; <span style="white-space:nowrap">gap <b>' + (d.hour_gap == null ? "–" : (100 * d.hour_gap).toFixed(1) + " points") + "</b></span>";
+    }
+  }
+  // ---------- can it tell late from on-time? validation predictions, split by what really happened ----------
+  function drawSep() {
+    var v = S.val; if (!v || !v.hist) return;
+    // the key first: it sets how much height is left for the chart
+    var o = v.operating;
+    var miss = o && o.recall != null ? 1 - Math.round(100 * o.recall) / 100 : null;   // so caught + missed always show 100%
+    var quiet = o && o.on_time_warned != null ? 1 - Math.round(100 * o.on_time_warned) / 100 : null;   // same for on-time buses
+    function sq(color, striped) {
+      return '<i class="sq" style="background:' + (striped ? "repeating-linear-gradient(135deg," + color + " 0 2px, transparent 2px 5px); border:1px solid " + color : color) + '"></i>';
+    }
+    function item(color, striped, name, val, good, what, rider) {
+      return '<span class="i">' + sq(color, striped) + '<span><b style="color:' + color + '">' + name + " " + pct(val) + "</b> " +
+        '<span class="v ' + (good ? "good" : "bad") + '">' + what + '</span><span class="r">' + rider + "</span></span></span>";
+    }
+    var fp = o ? o.on_time_warned : null;
+    $("sep-s").innerHTML =
+      '<span class="g">Late</span>' +
+      item(C("--a-caught"), false, "True Positive", o && o.recall, true, "caught", "Warned; rider can plan for the delay.") +
+      item(C("--a-missed"), true, "False Negative", miss, false, "missed", "Not warned; rider is stuck waiting.") +
+      '<span class="g">On time</span>' +
+      item(C("--a-quiet"), false, "True Negative", quiet, true, "all clear", "Not warned; bus comes on time.") +
+      item(C("--a-false"), true, "False Positive", fp, false, "false alarm", "Warned for nothing; trust drops.");
+    var g = setup("c-sep", 0.55, 220, 320), ctx = g.ctx, L = 42, R = 12, T = 22, B = 22, W = g.w - L - R, H = g.h - T - B;
+    var share = function (c) { var t = c.reduce(function (a, b) { return a + b; }, 0) || 1; return c.map(function (x) { return x / t; }); };
+    var late = share(v.hist.late), on = share(v.hist.ontime), nb = late.length;
+    var ymax = Math.max.apply(null, late.concat(on)) * 1.15 || 0.1;
+    var X = function (p) { return L + p * W; }, Y = function (y) { return T + (1 - y / ymax) * H; };
+    ctx.font = MONO; ctx.fillStyle = C("--muted"); ctx.strokeStyle = C("--rule"); ctx.lineWidth = 1; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    niceTicks(0, ymax, 4).forEach(function (y) { ctx.beginPath(); ctx.moveTo(L, Y(y)); ctx.lineTo(L + W, Y(y)); ctx.stroke(); ctx.fillText(Math.round(y * 100) + "%", L - 6, Y(y)); });
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    [0, 0.25, 0.5, 0.75, 1].forEach(function (p) { ctx.fillText(Math.round(p * 100) + "%", X(p), T + H + 6); });
+    var kept = v.epoch === S.early_stopping.best_epoch && S.progress.phase === "done";
+    ctx.textAlign = "left"; ctx.fillText("% of each group at each predicted chance of being late · " + (kept ? "epoch " + v.epoch + " (kept)" : "after epoch " + v.epoch), L, 2);
+    var t = S.run.threshold || 0.45, tb = Math.round(t * nb);
+    // one area = one hill on one side of the line. Each gets its own color.
+    function top(vals, a, b, base) { for (var i = a; i < b; i++) { var y = Y(vals[i]); if (i === a) { if (base) { ctx.moveTo(X(i / nb), Y(0)); ctx.lineTo(X(i / nb), y); } else ctx.moveTo(X(i / nb), y); } else ctx.lineTo(X(i / nb), y); ctx.lineTo(X((i + 1) / nb), y); } }
+    function stripes(color) {                                   // mistakes are striped
+      var c = document.createElement("canvas"); c.width = c.height = 8; var x = c.getContext("2d");
+      x.strokeStyle = color; x.lineWidth = 2; x.beginPath(); x.moveTo(0, 8); x.lineTo(8, 0); x.moveTo(-2, 2); x.lineTo(2, -2); x.moveTo(6, 10); x.lineTo(10, 6); x.stroke();
+      return ctx.createPattern(c, "repeat");
+    }
+    function area(vals, a, b, color, striped) {
+      ctx.beginPath(); top(vals, a, b, true); ctx.lineTo(X(b / nb), Y(0)); ctx.closePath();
+      ctx.fillStyle = C("--panel"); ctx.fill();                 // solid base, so overlapping areas never blend
+      ctx.globalAlpha = striped ? 0.18 : 0.45; ctx.fillStyle = color; ctx.fill();
+      if (striped) { ctx.globalAlpha = 0.7; ctx.fillStyle = stripes(color); ctx.fill(); }
+      ctx.globalAlpha = 1;
+    }
+    // left of the line the late hill is the smaller one, right of it the on-time hill is: draw the smaller one on top
+    area(on, 0, tb, C("--a-quiet"), false); area(late, 0, tb, C("--a-missed"), true);
+    area(late, tb, nb, C("--a-caught"), false); area(on, tb, nb, C("--a-false"), true);
+    // the warning line (solid grey), then the two curves on top, each one line across the whole chart
+    ctx.strokeStyle = C("--muted"); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(X(t), T); ctx.lineTo(X(t), T + H); ctx.stroke();
+    ctx.fillStyle = C("--muted"); ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillText("warn →", X(t) + 6, T + 4);
+    function curve(vals, color) { ctx.beginPath(); top(vals, 0, nb, false); ctx.strokeStyle = color; ctx.lineWidth = 2.4; ctx.stroke(); }
+    curve(on, C("--ontime")); curve(late, C("--late"));
+    function peak(vals, a, b) { var k = a; for (var i = a; i < b; i++) if (vals[i] > vals[k]) k = i; return k; }
+    // name the two curves at their peaks (the four areas are explained in the key below)
+    if (H >= 60) {
+      ctx.font = "600 12px " + C("--body"); ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+      var pOn = peak(on, 0, nb), pLate = peak(late, Math.min(nb - 1, tb + 5), nb);
+      ctx.fillStyle = C("--ontime"); ctx.fillText("on-time buses", X((pOn + 0.5) / nb), Y(on[pOn]) - 5);
+      ctx.fillStyle = C("--late"); ctx.fillText("late buses", X((pLate + 0.5) / nb), Y(late[pLate]) - 5);
+    }
+    ctx.font = MONO;
+
+  }
+  // ---------- hover: exact values for one epoch ----------
+  function hover(id, rows) {
+    var cv = $(id), box = cv.parentNode, tip = document.createElement("div"), guide = document.createElement("div");
+    tip.className = "tip"; guide.className = "guide"; tip.hidden = guide.hidden = true; box.appendChild(guide); box.appendChild(tip);
+    function hide() { tip.hidden = guide.hidden = true; }
+    cv.addEventListener("pointerleave", hide);
+    cv.addEventListener("pointermove", function (ev) {
+      var g = GEO[id]; if (!S || !g) return hide();
+      var r = cv.getBoundingClientRect(), mx = ev.clientX - r.left;
+      var e = Math.round(g.xmin + (mx - g.L) / g.W * (g.xmax - g.xmin));
+      var row = S.epochs.filter(function (x) { return x.epoch === e && e > 0; })[0];
+      if (!row) return hide();
+      var x = g.L + (e - g.xmin) / (g.xmax - g.xmin) * g.W;
+      guide.style.left = x + "px"; guide.style.top = g.T + "px"; guide.style.height = g.H + "px";
+      tip.innerHTML = '<div class="th">Epoch ' + e + (e === S.early_stopping.best_epoch ? " · best" : "") + "</div>" + rows(row);
+      tip.hidden = guide.hidden = false;
+      var left = x + 12; if (left + tip.offsetWidth > r.width - 4) left = x - 12 - tip.offsetWidth;
+      tip.style.left = left + "px"; tip.style.top = (g.T + 6) + "px";
+    });
+  }
+  function tr(color, label, val, what) { return '<div class="tr"><span style="color:' + color + '">●</span> ' + label + " <b>" + val + '</b><div class="what">' + what + "</div></div>"; }
+  hover("c-loss", function (r) {
+    return tr("var(--fg)", "training loss", num(r.train_loss, 4), "How wrong its guesses are on the bus arrivals it practices on. Smaller is better.") +
+      tr("var(--auc)", "validation loss", num(r.val_loss, 4), "How wrong its guesses are on new bus arrivals it has never seen. Smaller is better.");
+  });
+  hover("c-auc", function (r) {
+    return tr("var(--auc)", "val AUC", num(r.val_auc, 4), "Show it one late bus and one on-time bus: how often it can tell which is which. 0.5 = coin flip, 1 = always right.") +
+      tr("var(--auc)", "val accuracy", r.val_accuracy == null ? "–" : (100 * r.val_accuracy).toFixed(1) + "%", "Out of every 100 new bus arrivals, how many it guesses right (it says late when the chance is over 50%).");
+  });
+  function drawAll() {
+    if (!S) return;
+    $("waiting").hidden = true; $("content").hidden = false;
+    drawStatus(); drawCharts(); drawSep(); fitSnapshot(S);
+  }
+  function poll() {
+    fetch("../live_runs/latest.txt", { cache: "no-store" }).then(function (r) { if (!r.ok) throw 0; return r.text(); })
+      .then(function (id) { id = id.trim(); if (id !== runId) { runId = id; lastUpdated = 0; } return fetch("../live_runs/" + id + "/state.json", { cache: "no-store" }); })
+      .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+      .then(function (s) { if (s.updated !== lastUpdated) { lastUpdated = s.updated; S = s; drawAll(); } })
+      .catch(function () {})
+      .then(function () { setTimeout(poll, 1000); });
+  }
+  var rt; addEventListener("resize", function () { clearTimeout(rt); rt = setTimeout(function () { drawAll(); drawFit(1); }, 150); });
+  poll();
+})();
+</script>
+</body>
+</html>

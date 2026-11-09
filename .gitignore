@@ -25,3 +25,6 @@ mlflow.db
 *.pkl
 *.pt
 *.h5
+
+# Live training dashboard snapshots (regenerated on every run)
+live_runs/

@@ -43,6 +43,43 @@ The local MLflow store (`mlflow.db`, `mlruns/`) is not in Git, so a fresh clone 
 original runs are exported in `mlflow_runs.csv`. To browse your own runs:
 `mlflow ui --backend-store-uri sqlite:///mlflow.db`
 
+## Watch LateNet train live (optional)
+
+A dashboard on your own computer that shows the winning model training, epoch by epoch.
+It trains exactly like step 3 above and, on the author's machine, ends with the same weights. It never changes
+`models/latenet.pt` (it only reads it to compare), never logs to MLflow, and never opens the test
+split. It needs the splits from `dvc pull`.
+Use two terminals, both from the repository root.
+
+**Terminal 1: start the dashboard page**
+```bash
+python src/serve_dashboard.py
+```
+Open http://localhost:8765/dashboard/ and leave it open. The server only shows `dashboard/` and
+`live_runs/`, and only to this computer.
+
+**Terminal 2: train**
+```bash
+python src/train_live.py configs/final.yaml
+```
+The page finds the run by itself and updates every second. It takes about as long as step 3
+(38 epochs). For a quick 1-epoch check on a sample of 200,000 training rows first,
+add `--pilot`. At the end of a full run, the last line compares the result with `models/latenet.pt`:
+`largest weight difference 0.0 (identical weights)` means it trained exactly the same model.
+
+What the page shows:
+- **Is it learning?** Training loss as it trains, then training and validation loss after each
+  epoch (hover for the values).
+- **Is it improving?** Validation AUC after each epoch, the best epoch and early stopping.
+- **Is it fitting the data?** Real vs predicted late rate by hour, on training and validation data.
+- **Can it tell late from on-time?** The predicted chance for late and on-time buses, and what the
+  0.45 threshold catches and misses.
+
+![The live dashboard at the end of the full run: it stopped early at epoch 38 and kept epoch 35 (validation AUC 0.7631)](assets/live_dashboard.png)
+
+It writes snapshots to `live_runs/` and the trained weights to `models/latenet_live.pt`; Git ignores
+both. Ctrl+C stops either terminal.
+
 ## Full pipeline: rebuild the dataset from raw data
 
 Not needed to reproduce the model: `dvc pull` above already provides the splits. This section
@@ -121,11 +158,12 @@ if a version already exists.
 ## Layout
 ```
 src/        every script that runs: ingestion, preparation, training, evaluation, latency, registration
+dashboard/  the live training page (see "Watch LateNet train live"); live_runs/ holds its snapshots
 configs/    one YAML file per training configuration; configs/final.yaml is the winning one
 data/       DVC-tracked data; only .dvc pointer files are in Git
 models/     DVC-tracked winning model (latenet.pt); only its .dvc pointer is in Git
 notebooks/  exploration only (01 historical files, 02 MBTA API)
 tests/      tests for src/
-assets/     images used in REPORT.md
+assets/     images used in REPORT.md and README.md
 REPORT.md   the model delivery report; ml_spec.md is the ML specification
 ```
